@@ -1,0 +1,71 @@
+/* ---------- 整体布局 ---------- */
+
+.app {
+  display: flex;
+  flex-direction: column;
+  height: 100vh;
+  width: 100vw;
+}
+
+.workspace {
+  flex: 1;
+  display: flex;
+  min-height: 0;
+}
+
+.editor-area {
+  flex: 1;
+  position: relative;
+  min-width: 0;
+  display: flex;
+}
+
+.editor-scroll,
+.source-host {
+  position: absolute;
+  inset: 0;
+}
+
+.editor-scroll {
+  overflow-y: auto;
+  overflow-x: hidden;
+  scroll-behavior: auto;
+}
+
+.source-host {
+  overflow: hidden;
+}
+
+.source-host .cm-editor {
+  height: 100%;
+}
+
+/* ---------- 虚拟列表 ---------- */
+
+.vl-spacer {
+  position: relative;
+  width: 100%;
+}
+
+.vl-row {
+  position: absolute;
+  left: 0;
+  right: 0;
+  top: 0;
+}
+
+.vl-row-inner {
+  width: 100%;
+}
+
+/* ---------- 专注模式：非活动块变暗 ---------- */
+
+body.focus-mode .vl-row .block {
+  opacity: 0.2;
+  transition: opacity 0.25s ease;
+}
+
+body.focus-mode .vl-row .block.block-active,
+body.focus-mode .vl-row .block.is-editing {
+  opacity: 1;
+}

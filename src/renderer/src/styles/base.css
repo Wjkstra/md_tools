@@ -1,0 +1,113 @@
+/* ---------- Reset ---------- */
+
+*,
+*::before,
+*::after {
+  box-sizing: border-box;
+}
+
+html,
+body {
+  margin: 0;
+  padding: 0;
+  height: 100%;
+  overflow: hidden;
+  -webkit-font-smoothing: antialiased;
+  text-rendering: optimizeLegibility;
+}
+
+body {
+  font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', 'PingFang SC',
+    'Hiragino Sans GB', 'Microsoft YaHei', sans-serif;
+  background: var(--bg);
+  color: var(--text);
+  font-size: var(--font-size, 16px);
+}
+
+button {
+  font: inherit;
+  color: inherit;
+}
+
+/* ---------- 主题变量 ---------- */
+
+:root,
+:root[data-theme='github-light'] {
+  --bg: #ffffff;
+  --bg-secondary: #f6f8fa;
+  --text: #1f2328;
+  --text-secondary: #57606a;
+  --border: #d8dee4;
+  --accent: #0969da;
+  --code-bg: rgba(175, 184, 193, 0.2);
+  --code-text: #953800;
+  --quote-bg: #f6f8fa;
+  --shadow: 0 8px 24px rgba(140, 149, 159, 0.2);
+  --hl-keyword: #cf222e;
+  --hl-string: #0a3069;
+  --hl-comment: #6e7781;
+  --hl-number: #0550ae;
+  --hl-built: #6639ba;
+  --hl-meta: #57606a;
+  color-scheme: light;
+}
+
+:root[data-theme='github-dark'] {
+  --bg: #0d1117;
+  --bg-secondary: #161b22;
+  --text: #e6edf3;
+  --text-secondary: #8b949e;
+  --border: #30363d;
+  --accent: #58a6ff;
+  --code-bg: #161b22;
+  --code-text: #ffa657;
+  --quote-bg: #161b22;
+  --shadow: 0 8px 24px rgba(1, 4, 9, 0.5);
+  --hl-keyword: #ff7b72;
+  --hl-string: #a5d6ff;
+  --hl-comment: #8b949e;
+  --hl-number: #79c0ff;
+  --hl-built: #d2a8ff;
+  --hl-meta: #8b949e;
+  color-scheme: dark;
+}
+
+:root[data-theme='sepia'] {
+  --bg: #f5ecd9;
+  --bg-secondary: #eadfc6;
+  --text: #524437;
+  --text-secondary: #8a7662;
+  --border: #d6c5a7;
+  --accent: #9a6a3d;
+  --code-bg: #e8dcC2;
+  --code-text: #8a4b2a;
+  --quote-bg: #ede0c6;
+  --shadow: 0 8px 24px rgba(120, 95, 60, 0.25);
+  --hl-keyword: #9a3d3d;
+  --hl-string: #5c4a1a;
+  --hl-comment: #9a8a72;
+  --hl-number: #3d5a8a;
+  --hl-built: #6a3d8a;
+  --hl-meta: #8a7662;
+  color-scheme: light;
+}
+
+:root[data-theme='midnight'] {
+  --bg: #141826;
+  --bg-secondary: #1c2236;
+  --text: #c9d2e8;
+  --text-secondary: #7e89a8;
+  --border: #2c3450;
+  --accent: #7aa2ff;
+  --code-bg: #1b2136;
+  --code-text: #e0a060;
+  --quote-bg: #1b2136;
+  --shadow: 0 8px 24px rgba(0, 0, 0, 0.55);
+  --hl-keyword: #e07a8a;
+  --hl-string: #9ac0e8;
+  --hl-comment: #6a7595;
+  --hl-number: #8ab0e8;
+  --hl-built: #c09ae8;
+  --hl-meta: #7e89a8;
+  color-scheme: dark;
+}
