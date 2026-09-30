@@ -313,4 +313,6 @@ class EditorSession(QWidget):
     # ---------------- 外观偏好 ----------------
 
     def apply_prefs(self) -> None:
+        theme = settings_service().current.theme
         self.preview.apply_prefs()
+        self.source.apply_theme(theme)

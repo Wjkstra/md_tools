@@ -1,6 +1,7 @@
-/* 渲染后 / 实时模式样式（与内置主题对齐） */
+/* 渲染后 / 实时模式样式（内置主题通过 body[data-theme] 切换 CSS 变量） */
 
-:root {
+:root,
+body[data-theme="light"] {
   --text: #24292f;
   --text-secondary: #57606a;
   --border: #d0d7de;
@@ -9,6 +10,7 @@
   --bg-secondary: #f6f8fa;
   --code-bg: rgba(175, 184, 193, 0.2);
   --quote-bg: rgba(9, 105, 218, 0.06);
+  --codehilite-bg: #f6f8fa;
 }
 
 * { box-sizing: border-box; }
@@ -54,8 +56,10 @@ body.focus-mode .block:not(.block-active) {
   transition: opacity 0.25s ease;
 }
 
-/* 暗色主题 */
-body.theme-dark {
+/* ---------------- 内置主题 ---------------- */
+
+/* 暗色（深蓝灰） */
+body[data-theme="dark"] {
   --text: #c9d1d9;
   --text-secondary: #8b949e;
   --border: #30363d;
@@ -64,8 +68,79 @@ body.theme-dark {
   --bg-secondary: #161b22;
   --code-bg: rgba(110, 118, 129, 0.25);
   --quote-bg: rgba(88, 166, 255, 0.08);
+  --codehilite-bg: #161b22;
 }
-body.theme-dark .codehilite { background: #161b22; }
+
+/* 护眼：柔和墨绿，低对比 */
+body[data-theme="solarized"] {
+  --text: #586e75;
+  --text-secondary: #839496;
+  --border: #c9d6d3;
+  --accent: #268bd2;
+  --bg: #fdf6e3;
+  --bg-secondary: #eee8d5;
+  --code-bg: rgba(147, 161, 161, 0.25);
+  --quote-bg: rgba(38, 139, 210, 0.08);
+  --codehilite-bg: #eee8d5;
+}
+
+/* 羊皮纸：暖米色，适合长文阅读 */
+body[data-theme="sepia"] {
+  --text: #5b4636;
+  --text-secondary: #8a7663;
+  --border: #e0d3c0;
+  --accent: #9c6630;
+  --bg: #f5ecd9;
+  --bg-secondary: #ecdfc5;
+  --code-bg: rgba(138, 118, 99, 0.2);
+  --quote-bg: rgba(156, 102, 48, 0.08);
+  --codehilite-bg: #ecdfc5;
+}
+
+/* 深夜：纯黑、省眼力的 OLED 风格 */
+body[data-theme="night"] {
+  --text: #c4c9d2;
+  --text-secondary: #7d8590;
+  --border: #2b3038;
+  --accent: #7aa2f7;
+  --bg: #000000;
+  --bg-secondary: #12141a;
+  --code-bg: rgba(125, 133, 144, 0.22);
+  --quote-bg: rgba(122, 162, 247, 0.08);
+  --codehilite-bg: #12141a;
+}
+
+/* Monokai：经典高饱和暗色系 */
+body[data-theme="monokai"] {
+  --text: #f8f8f2;
+  --text-secondary: #a6a297;
+  --border: #41433c;
+  --accent: #a6e22e;
+  --bg: #272822;
+  --bg-secondary: #32332c;
+  --code-bg: rgba(166, 162, 151, 0.22);
+  --quote-bg: rgba(166, 226, 46, 0.08);
+  --codehilite-bg: #32332c;
+}
+
+/* Dracula：紫调暗色 */
+body[data-theme="dracula"] {
+  --text: #f8f8f2;
+  --text-secondary: #a4acc4;
+  --border: #44475a;
+  --accent: #bd93f9;
+  --bg: #282a36;
+  --bg-secondary: #343746;
+  --code-bg: rgba(164, 172, 196, 0.22);
+  --quote-bg: rgba(189, 147, 249, 0.09);
+  --codehilite-bg: #343746;
+}
+
+/* 暗色主题下代码块背景统一跟随变量 */
+body[data-theme="dark"] .codehilite,
+body[data-theme="night"] .codehilite,
+body[data-theme="monokai"] .codehilite,
+body[data-theme="dracula"] .codehilite { background: var(--codehilite-bg); }
 
 p { margin: 0.45em 0; }
 
@@ -121,10 +196,10 @@ th { background: var(--bg-secondary); }
   border-radius: 8px;
   padding: 10px 14px;
   overflow-x: auto;
-  background: var(--bg-secondary);
+  background: var(--codehilite-bg, var(--bg-secondary));
 }
 .codehilite pre { margin: 0; }
 .codehilite code { background: none; padding: 0; }
 
 .math-block, .mermaid { margin: 0.7em 0; }
-.diagram-error { color: #cf222e; font-size: 13px; }
+.diagram-error { color: var(--accent); font-size: 13px; }

@@ -73,13 +73,17 @@ class CommandPalette(QDialog):
             return True
         return super().eventFilter(obj, event)
 
-_THEMES = [
-    "github-light",
-    "github-dark",
-    "monokai",
-    "dracula",
-    "night",
+# 主题 id → 显示名（id 同时用于 CSS data-theme 与源码高亮调色板）
+THEME_CHOICES = [
+    ("light", "浅色"),
+    ("dark", "深色"),
+    ("solarized", "护眼（Solarized）"),
+    ("sepia", "羊皮纸"),
+    ("night", "深夜（OLED）"),
+    ("monokai", "Monokai"),
+    ("dracula", "Dracula"),
 ]
+_THEMES = [name for name, _label in THEME_CHOICES]
 
 
 def alert(parent: QWidget, message: str) -> None:
@@ -114,8 +118,14 @@ class SettingsDialog(QDialog):
         form = QFormLayout(self)
 
         self._theme = QComboBox()
-        self._theme.addItems(_THEMES)
-        self._theme.setCurrentText(s.theme)
+        for theme_id, label in THEME_CHOICES:
+            self._theme.addItem(label, theme_id)
+        # 选中当前主题（按保存的 id；未知主题默认第一项）
+        current_theme_index = next(
+            (i for i, (tid, _) in enumerate(THEME_CHOICES)
+             if tid in s.theme.lower()), 0
+        )
+        self._theme.setCurrentIndex(current_theme_index)
 
         self._font = QSpinBox()
         self._font.setRange(12, 28)
@@ -169,7 +179,7 @@ class SettingsDialog(QDialog):
             if self._plugins.item(i).checkState() == Qt.Checked
         ]
         settings_service().patch(
-            theme=self._theme.currentText(),
+            theme=self._theme.currentData(),
             font_size=self._font.value(),
             auto_save=self._autosave.isChecked(),
             mermaid=self._mermaid.isChecked(),

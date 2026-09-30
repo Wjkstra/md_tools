@@ -419,20 +419,25 @@ class WebPreview(QWebEngineView):
 
     def apply_prefs(self) -> None:
         s = settings_service().current
-        dark = self._is_dark(s.theme)
+        theme_id = self._theme_id(s.theme)
         self.page().runJavaScript(
             "document.body.classList.toggle('focus-mode', "
             f"{'true' if s.focus_mode else 'false'});"
-            "document.body.classList.toggle('theme-dark', "
-            f"{'true' if dark else 'false'});"
+            f"document.body.setAttribute('data-theme', {json.dumps(theme_id)});"
             f"window.__typewriter = {'true' if s.typewriter_mode else 'false'};"
             f"window.__smartQuotes = {'true' if s.smart_punctuation else 'false'};"
         )
 
     @staticmethod
-    def _is_dark(theme: str) -> bool:
+    def _theme_id(theme: str) -> str:
+        """把设置中的主题名映射到 CSS data-theme id（未知主题回落到 light）。"""
         t = theme.lower()
-        return any(k in t for k in ("dark", "night", "monokai", "dracula"))
+        known = ("light", "dark", "solarized", "sepia",
+                  "night", "monokai", "dracula")
+        for theme_id in known:
+            if theme_id in t:
+                return theme_id
+        return "light"
 
     def reload_blocks(self, focus: bool = False) -> None:
         self.page().runJavaScript(

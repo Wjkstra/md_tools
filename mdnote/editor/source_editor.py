@@ -36,6 +36,17 @@ class SourceEditor(QPlainTextEdit):
         self._highlighter = MarkdownHighlighter(self.document())
         self.textChanged.connect(self.content_changed_detail.emit)
 
+    def apply_theme(self, theme: str) -> None:
+        """切换编辑器背景 / 前景与语法高亮调色板。"""
+        from .md_highlighter import editor_colors_for, palette_for
+
+        bg, fg = editor_colors_for(theme)
+        palette = self.palette()
+        palette.setColor(self.backgroundRole(), QColor(bg))
+        palette.setColor(self.foregroundRole(), QColor(fg))
+        self.setPalette(palette)
+        self._highlighter.set_palette(palette_for(theme))
+
     # ---------------- 行号 ----------------
 
     def line_number_area_width(self) -> int:
