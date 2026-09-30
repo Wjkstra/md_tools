@@ -12,6 +12,7 @@ from PySide6.QtCore import QObject, QUrl, Signal, Slot
 from PySide6.QtGui import QDesktopServices
 from PySide6.QtWebChannel import QWebChannel
 from PySide6.QtWebEngineWidgets import QWebEngineView
+from PySide6.QtWebEngineCore import QWebEnginePage
 
 from .. import config as app_config
 from ..core.settings import settings_service
@@ -122,17 +123,32 @@ class LiveDocument:
         self.doc_base: str | None = None
         self._undo: list[str] = []
         self._redo: list[str] = []
+        self._draft: tuple[int, str] | None = None
 
     # ---------------- 文本装载 ----------------
 
     def set_text(self, text: str) -> None:
+        self._draft = None
         self.text = text
         self.model = build_model(text)
         self._undo.clear()
         self._redo.clear()
 
     def get_text(self) -> str:
-        return serialize(self.model)
+        if self._draft is not None:
+            index, raw = self._draft
+            b = self.model.blocks[index]
+            return self.text[:b.start] + raw + self.text[b.end:]
+        return self.text
+
+    def update_draft(self, index: int, raw: str) -> None:
+        """同步输入供保存使用，编辑期间保持块索引稳定。"""
+        if self._draft == (index, raw):
+            return
+        if raw != self.model.blocks[index].raw:
+            self._redo.clear()
+        self._draft = (index, raw)
+        self.on_text_changed()
 
     def payload(self) -> list[dict]:
         return _blocks_payload(self.model, self.doc_base)
@@ -148,6 +164,9 @@ class LiveDocument:
         self._redo.clear()
 
     def undo(self) -> bool:
+        if self._draft is not None:
+            index, raw = self._draft
+            self.commit(index, raw)
         if not self._undo:
             return False
         self._redo.append(self.text)
@@ -166,6 +185,7 @@ class LiveDocument:
     # ---------------- splice ----------------
 
     def _splice(self, start: int, end: int, insert: str, record: bool = True) -> None:
+        self._draft = None
         if record:
             self._snapshot()
         self.text = self.text[:start] + insert + self.text[end:]
@@ -177,6 +197,7 @@ class LiveDocument:
         return self.model.blocks[index].raw
 
     def commit(self, index: int, raw: str) -> list[dict]:
+        self._draft = None
         b = self.model.blocks[index]
         if b.trailing and raw:
             # 在文末挂尾块输入：文本直接追加
@@ -223,8 +244,13 @@ class LiveDocument:
         # 块索引可能因解析变化而移动：用 caret 全局偏移重新定位块
         caret_global = b.start + r.caret
         new_index = find_block_index(self.model, caret_global)
+        if (self.model.blocks[new_index].trailing and new_index > 0
+                and self.model.blocks[new_index - 1].end == caret_global
+                and not r.text.endswith("\n")):
+            new_index -= 1
         new_b = self.model.blocks[new_index]
-        return {"index": new_index, "text": new_b.raw, "caret": caret_global - new_b.start}
+        return {"blocks": self.payload(), "index": new_index,
+                "text": new_b.raw, "caret": caret_global - new_b.start}
 
     def toggle_task(self, index: int) -> list[dict]:
         b = self.model.blocks[index]
@@ -281,9 +307,31 @@ class Bridge(QObject):
     def commit(self, index: int, raw: str) -> str:
         return json.dumps(self._doc.commit(index, raw), ensure_ascii=False)
 
+    @Slot(int, str, int, result=str)
+    def commitAndLocate(self, index: int, raw: str, target_index: int) -> str:
+        block = self._doc.model.blocks[index]
+        target = self._doc.model.blocks[target_index].start
+        if target_index > index:
+            target += len(raw) - len(block.raw)
+        blocks = self._doc.commit(index, raw)
+        return json.dumps({"blocks": blocks,
+                           "index": find_block_index(self._doc.model, target)}, ensure_ascii=False)
+
+    @Slot(int, str)
+    def updateDraft(self, index: int, raw: str) -> None:
+        self._doc.update_draft(index, raw)
+
     @Slot(int, str, int, str, result=str)
     def transform(self, index: int, command: str, offset: int, current_raw: str) -> str:
-        r = self._doc.transform(index, command, offset, current_raw)
+        # DOM selections count UTF-16 code units; Python strings count code points.
+        prefix = current_raw.encode("utf-16-le")[:max(0, offset) * 2]
+        py_offset = len(prefix.decode("utf-16-le", errors="ignore"))
+        r = self._doc.transform(index, command, py_offset, current_raw)
+        if r is not None:
+            target = r.get("enter", r)
+            raw = (r["blocks"][target["index"]]["raw"]
+                   if "blocks" in r else r["text"])
+            target["caret"] = len(raw[:target["caret"]].encode("utf-16-le")) // 2
         return json.dumps(r, ensure_ascii=False)
 
     @Slot(int, result=str)
@@ -346,8 +394,8 @@ class WebPreview(QWebEngineView):
         # 链接点击在页面层已处理（外链 → 系统浏览器，锚点 → 页内滚动）。
         # 若仍有「链接」导航抵达这里，说明绕过了页面脚本——拒绝以防视图跳走；
         # 初始加载(Other)、刷新(Reload) 等其余类型放行。
-        nav_type = getattr(request, "navigationType", None)
-        if nav_type is not None and int(nav_type) == 0:  # Link
+        nav_type = request.navigationType()
+        if nav_type == QWebEnginePage.NavigationType.NavigationTypeLinkClicked:
             request.reject()
         else:
             request.accept()
@@ -370,4 +418,4 @@ class WebPreview(QWebEngineView):
         return any(k in t for k in ("dark", "night", "monokai", "dracula"))
 
     def reload_blocks(self) -> None:
-        self.page().runJavaScript("App && App.bridge && App.bridge.loadBlocks((p)=>App.renderAll(p));")
+        self.page().runJavaScript("App && App.bridge && App.bridge.loadBlocks((p)=>App.renderAll(JSON.parse(p)));")

@@ -22,6 +22,8 @@ ShowUninstDetails hide
 ; ---------------- 页面 ----------------
 
 !define MUI_ABORTWARNING
+!define MUI_ICON "..\mdnote\resources\icon.ico"
+!define MUI_UNICON "..\mdnote\resources\icon.ico"
 
 !insertmacro MUI_PAGE_DIRECTORY
 !insertmacro MUI_PAGE_COMPONENTS

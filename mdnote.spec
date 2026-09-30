@@ -9,6 +9,7 @@ a = Analysis(
     binaries=[],
     datas=[
         ("mdnote/editor/web", "mdnote/editor/web"),
+        ("mdnote/resources", "mdnote/resources"),
     ],
     hiddenimports=[
         "PySide6.QtNetwork",
@@ -44,6 +45,7 @@ exe = EXE(
     strip=False,
     upx=True,
     console=False,  # 窗口应用，无控制台
+    icon="mdnote/resources/icon.ico",
     disable_windowed_traceback=False,
     target_arch=None,
     codesign_identity=None,

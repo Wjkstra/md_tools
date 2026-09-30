@@ -32,3 +32,7 @@ def _base_dir() -> Path:
 
 def web_dir() -> Path:
     return _base_dir() / "mdnote" / "editor" / "web"
+
+
+def icon_file() -> Path:
+    return _base_dir() / "mdnote" / "resources" / "icon.ico"

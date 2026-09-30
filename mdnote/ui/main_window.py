@@ -3,7 +3,7 @@
 from pathlib import Path
 
 from PySide6.QtCore import QFileSystemWatcher, QTimer, Qt
-from PySide6.QtGui import QAction, QKeySequence, QTextCursor, QTextDocument
+from PySide6.QtGui import QAction, QIcon, QKeySequence, QTextCursor, QTextDocument
 from PySide6.QtWidgets import (
     QFileDialog,
     QMainWindow,
@@ -16,6 +16,7 @@ from PySide6.QtWidgets import (
 
 from ..core.settings import settings_service
 from ..core.word_count import DocStats, count_stats
+from .. import config
 from ..editor.block_model import build_model, extract_headings
 from ..editor.source_editor import SourceEditor
 from ..editor.webview import LiveDocument, WebPreview
@@ -42,6 +43,7 @@ class MainWindow(QMainWindow):
     def __init__(self) -> None:
         super().__init__()
         self.setWindowTitle("MdNote")
+        self.setWindowIcon(QIcon(str(config.icon_file())))
         self.resize(1280, 860)
 
         self._file_path: str | None = None
@@ -252,6 +254,7 @@ class MainWindow(QMainWindow):
         self._watch_file(None)
         if self._mode == "live":
             self._doc.set_text("")
+            self._preview.reload_blocks()
         else:
             self._source.set_text("")
         self._set_dirty(False)
@@ -277,6 +280,7 @@ class MainWindow(QMainWindow):
     def _load_text(self, text: str) -> None:
         if self._mode == "live":
             self._doc.set_text(text)
+            self._preview.reload_blocks()
         else:
             self._source.set_text(text)
         self._stats = count_stats(text)
@@ -327,6 +331,7 @@ class MainWindow(QMainWindow):
             self._source.setFocus()
         else:
             self._doc.set_text(self._source.get_text())
+            self._preview.reload_blocks()
             self._mode = "live"
             self._stack.setCurrentIndex(0)
         self._refresh_status()
@@ -352,14 +357,16 @@ class MainWindow(QMainWindow):
     def _undo(self) -> None:
         if self._mode == "live":
             if self._doc.undo():
-                self._set_dirty(True)
+                self._preview.reload_blocks()
+                self._on_content_changed()
         else:
             self._source.undo()
 
     def _redo(self) -> None:
         if self._mode == "live":
             if self._doc.redo():
-                self._set_dirty(True)
+                self._preview.reload_blocks()
+                self._on_content_changed()
         else:
             self._source.redo()
 

@@ -5,11 +5,23 @@ const App = {
   blocks: [],
   editingIndex: -1,
   bridge: null,
+  pendingTransform: false,
+  pendingInput: [],
 
   init(bridge) {
     this.bridge = bridge;
     document.addEventListener("mousedown", (e) => this.onMouseDown(e), true);
     document.addEventListener("keydown", (e) => this.onKeyDown(e));
+    document.addEventListener("input", () => this.syncDraft());
+    document.addEventListener("beforeinput", (e) => {
+      if (!this.pendingTransform || !e.cancelable) return;
+      const commands = {insertText: "insertText", deleteContentBackward: "delete",
+        deleteContentForward: "forwardDelete"};
+      const command = commands[e.inputType];
+      if (!command) return;
+      e.preventDefault();
+      this.pendingInput.push(() => document.execCommand(command, false, e.data || ""));
+    });
     // 链接：页内锚点（#id / TOC）就地滚动；其余（外部网址）交系统浏览器
     document.addEventListener("click", (e) => {
       const a = e.target.closest("a");
@@ -30,7 +42,17 @@ const App = {
       if (e.dataTransfer && [...e.dataTransfer.types].includes("Files")) e.preventDefault();
     });
     document.addEventListener("drop", (e) => this.onMedia(e, e.dataTransfer));
-    document.addEventListener("paste", (e) => this.onMedia(e, e.clipboardData));
+    document.addEventListener("paste", (e) => {
+      if (e.clipboardData && e.clipboardData.files.length) {
+        this.onMedia(e, e.clipboardData);
+      } else if (this.editingIndex >= 0 && e.clipboardData) {
+        e.preventDefault();
+        const text = e.clipboardData.getData("text/plain").replace(/\r\n?/g, "\n");
+        const insert = () => this.replaceSelection(text);
+        if (this.pendingTransform) this.pendingInput.push(insert);
+        else insert();
+      }
+    });
   },
 
   async onMedia(event, transfer) {
@@ -73,6 +95,7 @@ const App = {
       const text = el.textContent;
       el.textContent = text.slice(0, off) + md + text.slice(off);
       this.setCaret(el, off + md.length);
+      this.syncDraft();
     } else {
       // 未在编辑：落到文档末尾挂尾块
       const lastIndex = this.blocks.length - 1;
@@ -90,6 +113,7 @@ const App = {
       for (const cell of table.querySelectorAll("th,td")) {
         cell.setAttribute("tabindex", "-1");
         cell.addEventListener("click", () => this.editCell(cell, table, index));
+        cell.addEventListener("input", () => this.submitTable(table, index));
         cell.addEventListener("keydown", (e) => {
           if (e.key === "Enter") {
             e.preventDefault();
@@ -124,7 +148,7 @@ const App = {
 
   submitTable(table, index) {
     const md = this.tableToMarkdown(table);
-    this.bridge.updateTable(index, md, () => {}); // 静默更新文档数据
+    this.bridge.updateTable(index, md, (s) => { this.blocks = JSON.parse(s); });
   },
 
   tableToMarkdown(table) {
@@ -138,8 +162,12 @@ const App = {
       return "| " + parts.join(" | ") + " |";
     });
     if (lines.length) {
-      const colCount = rows[0].querySelectorAll("th,td").length;
-      lines.splice(1, 0, "| " + Array(colCount).fill("---").join(" | ") + " |");
+      const markers = [...rows[0].querySelectorAll("th,td")].map((cell) => {
+        const align = cell.style.textAlign || cell.getAttribute("align");
+        return align === "center" ? ":---:" : align === "right" ? "---:" :
+          align === "left" ? ":---" : "---";
+      });
+      lines.splice(1, 0, "| " + markers.join(" | ") + " |");
     }
     return lines.join("\n");
   },
@@ -233,6 +261,23 @@ const App = {
 
   onMouseDown(e) {
     const target = e.target;
+    const clickedBlock = target.closest(".block");
+    const clickedIndex = clickedBlock ? Number(clickedBlock.dataset.index) : -1;
+    if (this.editingIndex >= 0 && clickedIndex >= 0 && clickedIndex !== this.editingIndex) {
+      e.preventDefault();
+      const cell = target.closest("th,td");
+      const cellIndex = cell ? [...clickedBlock.querySelectorAll("th,td")].indexOf(cell) : -1;
+      const checkboxIndex = [...clickedBlock.querySelectorAll("input.task-checkbox")].indexOf(target);
+      this.bridge.commitAndLocate(this.editingIndex, this.editingRaw(), clickedIndex, (s) => {
+        const result = JSON.parse(s);
+        this.renderAll(result.blocks);
+        const block = document.querySelector(`.block[data-index="${result.index}"]`);
+        const next = cellIndex >= 0 ? block.querySelectorAll("th,td")[cellIndex] :
+          checkboxIndex >= 0 ? block.querySelectorAll("input.task-checkbox")[checkboxIndex] : block;
+        if (next) this.onMouseDown({target:next, clientX:e.clientX, clientY:e.clientY, preventDefault() {}});
+      });
+      return;
+    }
     if (target.matches("input.task-checkbox")) {
       e.preventDefault();
       const idx = Number(target.closest(".block").dataset.index);
@@ -259,39 +304,30 @@ const App = {
 
     e.preventDefault();
     const point = { x: e.clientX, y: e.clientY };
-    if (this.editingIndex >= 0) {
-      const raw = this.editingRaw();
-      this.bridge.commit(this.editingIndex, raw, (s) => {
-        this.renderAll(JSON.parse(s));
-        this.startEdit(idx, point);
-      });
-    } else {
-      this.startEdit(idx, point);
-    }
+    this.startEdit(idx, point);
   },
 
   startEdit(index, point, fixedCaret = null) {
-    this.bridge.startEdit(index, (s) => {
-      const raw = JSON.parse(s);
-      const el = document.querySelector(`.block[data-index="${index}"]`);
-      if (!el) return;
-      el.classList.add("is-editing");
-      el.textContent = raw;
-      el.contentEditable = "true";
-      el.focus({ preventScroll: true });
-      this.editingIndex = index;
-      this.markActive(index);
-      let local = raw.length;
-      if (fixedCaret !== null) {
-        local = fixedCaret;
-      } else if (point) {
-        const range = document.caretRangeFromPoint(point.x, point.y);
-        if (range && el.contains(range.startContainer)) {
-          local = this.textOffset(el, range.startContainer, range.startOffset);
-        }
+    if (!this.blocks[index]) return;
+    const raw = this.blocks[index].raw;
+    const el = document.querySelector(`.block[data-index="${index}"]`);
+    if (!el) return;
+    el.classList.add("is-editing");
+    el.textContent = raw;
+    el.contentEditable = "true";
+    el.focus({ preventScroll: true });
+    this.editingIndex = index;
+    this.markActive(index);
+    let local = raw.length;
+    if (fixedCaret !== null) {
+      local = fixedCaret;
+    } else if (point) {
+      const range = document.caretRangeFromPoint(point.x, point.y);
+      if (range && el.contains(range.startContainer)) {
+        local = this.textOffset(el, range.startContainer, range.startOffset);
       }
-      this.setCaret(el, local);
-    });
+    }
+    this.setCaret(el, local);
   },
 
   commitEdit() {
@@ -305,50 +341,54 @@ const App = {
     return el ? el.textContent : "";
   },
 
+  syncDraft() {
+    if (this.editingIndex >= 0) {
+      this.bridge.updateDraft(this.editingIndex, this.editingRaw());
+    }
+  },
+
   // ---------------- 按键 ----------------
 
   onKeyDown(e) {
     if (this.editingIndex < 0) return;
     if (e.isComposing || e.keyCode === 229) return; // IME 组字保护
+    if (this.pendingTransform && (["Enter", "Tab", "Backspace", "Delete", "Escape", " "].includes(e.key) ||
+        (e.key === '"' && window.__smartQuotes))) {
+      e.preventDefault();
+      const options = {key:e.key, shiftKey:e.shiftKey, bubbles:true, cancelable:true};
+      this.pendingInput.push(() => {
+        const replay = new KeyboardEvent("keydown", options);
+        document.activeElement.dispatchEvent(replay);
+        if (!replay.defaultPrevented && ["Backspace", "Delete"].includes(options.key)) {
+          document.execCommand(options.key === "Backspace" ? "delete" : "forwardDelete");
+        }
+      });
+      return;
+    }
     const el = document.querySelector(".block.is-editing");
     if (!el) return;
-    const sel = getSelection();
-    const off = this.textOffset(el, sel.anchorNode, sel.anchorOffset);
+    const selection = this.selectionOffsets(el);
+    if (!selection) return;
+    const [off, end] = selection;
+    const raw = el.textContent.slice(0, off) + el.textContent.slice(end);
     const key = e.key;
 
     if (key === "Enter") {
       e.preventDefault();
-      this.bridge.transform(this.editingIndex, "enter", off, el.textContent, (s) => {
-        const st = JSON.parse(s);
-        this.applyInline(el, st);
-      });
-    } else if (key === "Backspace" && off === 0) {
+      this.requestTransform(el, "enter", off, raw);
+    } else if (key === "Backspace" && off === 0 && off === end) {
       e.preventDefault();
-      this.bridge.transform(this.editingIndex, "backspace", off, el.textContent, (s) => {
-        const st = JSON.parse(s);
-        if (st.blocks) {
-          this.renderAll(st.blocks);
-          this.startEdit(st.enter.index, null, st.enter.caret);
-        } else {
-          this.applyInline(el, st);
-        }
-      });
+      this.requestTransform(el, "backspace", off, el.textContent);
     } else if (key === "Tab") {
       e.preventDefault();
-      this.bridge.transform(
-        this.editingIndex, e.shiftKey ? "shiftTab" : "tab", off, el.textContent, (s) => {
-          const st = JSON.parse(s);
-          this.applyInline(el, st);
-        });
+      this.requestTransform(el, e.shiftKey ? "shiftTab" : "tab", off, el.textContent);
     } else if (key === " ") {
-      this.bridge.transform(
-        this.editingIndex, "spaceProbe", off + 1, el.textContent, (s) => {
-          const st = s === "null" ? null : JSON.parse(s);
-          if (st) {
-            e.preventDefault();
-            this.applyInline(el, st);
-          }
-        });
+      e.preventDefault();
+      const spaced = raw.slice(0, off) + " " + raw.slice(off);
+      el.textContent = spaced;
+      this.setCaret(el, off + 1);
+      this.syncDraft();
+      this.requestTransform(el, "spaceProbe", off + 1, spaced);
     } else if (key === '"' && window.__smartQuotes) {
       e.preventDefault();
       this.insertPaired("“", "”");
@@ -356,6 +396,24 @@ const App = {
       e.preventDefault();
       this.commitEdit();
     }
+  },
+
+  requestTransform(el, command, offset, raw) {
+    this.pendingTransform = true;
+    this.bridge.transform(this.editingIndex, command, offset, raw, (s) => {
+      try {
+        const st = JSON.parse(s);
+        if (st && st.enter) {
+          this.renderAll(st.blocks);
+          this.startEdit(st.enter.index, null, st.enter.caret);
+        } else if (st) {
+          this.applyInline(el, st);
+        }
+      } finally {
+        this.pendingTransform = false;
+        while (!this.pendingTransform && this.pendingInput.length) this.pendingInput.shift()();
+      }
+    });
   },
 
   /** 在光标处插入一对符号，光标置于两者之间 */
@@ -366,16 +424,17 @@ const App = {
     const text = el.textContent;
     el.textContent = text.slice(0, off) + open + close + text.slice(off);
     this.setCaret(el, off + 1);
+    this.syncDraft();
   },
 
   /** 应用同块变换；若块索引变化则整体重渲染后进入目标块。 */
   applyInline(el, st) {
-    if (st.index === undefined || st.index === this.editingIndex) {
+    if (st.blocks) {
+      this.renderAll(st.blocks);
+      this.startEdit(st.index, null, st.caret);
+    } else {
       el.textContent = st.text;
       this.setCaret(el, st.caret);
-    } else {
-      this.renderAll(st.blocks || this.blocks);
-      if (!st.blocks) this.startEdit(st.index, null, st.caret);
     }
   },
 
@@ -403,6 +462,26 @@ const App = {
 
   // ---------------- 选区工具 ----------------
 
+  selectionOffsets(root) {
+    const sel = getSelection();
+    if (!sel.rangeCount) return null;
+    const range = sel.getRangeAt(0);
+    if (!root.contains(range.startContainer) || !root.contains(range.endContainer)) return null;
+    return [this.textOffset(root, range.startContainer, range.startOffset),
+      this.textOffset(root, range.endContainer, range.endOffset)];
+  },
+
+  replaceSelection(text) {
+    const el = document.querySelector(".block.is-editing");
+    if (!el) return;
+    const selection = this.selectionOffsets(el);
+    if (!selection) return;
+    const [start, end] = selection;
+    el.textContent = el.textContent.slice(0, start) + text + el.textContent.slice(end);
+    this.setCaret(el, start + text.length);
+    this.syncDraft();
+  },
+
   textOffset(root, container, offset) {
     const r = document.createRange();
     r.selectNodeContents(root);
@@ -411,6 +490,7 @@ const App = {
   },
 
   setCaret(root, offset) {
+    if (!root.firstChild) root.appendChild(document.createTextNode(""));
     const walker = document.createTreeWalker(root, NodeFilter.SHOW_TEXT);
     let remaining = offset;
     let node = walker.nextNode();
