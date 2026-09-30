@@ -121,7 +121,8 @@ mdnote/
 │   ├── image_service.py   # 图片拷贝 / base64 落盘，返回嵌入引用
 │   └── exporter.py        # HTML / PDF / 图片导出、Pandoc 调用
 └── ui/
-    ├── main_window.py     # 主窗口：菜单、动作、文件生命周期、焦点导航
+    ├── main_window.py     # 多标签管理、菜单、全局焦点导航
+    ├── editor_session.py  # 单个标签的会话：文档+两种编辑器+模式/文件/dirty
     ├── sidebar.py         # 文件树 + 大纲（Esc 返回编辑器）
     ├── statusbar.py       # 状态栏
     ├── findbar.py         # 查找 / 替换
@@ -131,9 +132,23 @@ launch.py                  # 打包入口（绝对导入）
 scripts/make_icon.py       # 应用图标生成
 tests/
 ├── test_editor.py         # 编辑器变换纯函数回归
+├── test_plugin_loader.py  # 插件加载器测试
 └── test_live_editor.py    # WebEngine 集成测试
 installer/setup.nsi        # NSIS 安装程序脚本（支持自定义安装路径）
 ```
+
+### 4.1 标签与会话
+
+主窗口用一个可关闭、可拖动的 `QTabWidget` 承载多个 :class:`EditorSession`：
+
+- 每个 **会话**独立持有自己的 `LiveDocument`、`WebPreview`、`SourceEditor`、
+  文件路径、模式与 dirty 状态，以及仅作用于本会话的防抖计时器
+- 全局的侧边栏、查找栏、状态栏、文件监视器由主窗口持有，菜单动作统一**委托给当前标签**
+- 打开文件时若该路径已在某标签中打开，则聚焦该标签而不是重复打开
+- 切换标签时：状态栏 / 标题刷新为该会话状态，文件监视器重新对准该标签的文件
+- 关闭标签或退出时，对未保存的会话执行 保存 / 不保存 / 取消 守卫
+
+主窗口同时保留少量委托属性（`_doc/_preview/_source/...`）指向当前会话。
 
 ## 5. Python ↔ 页面 桥接契约
 
