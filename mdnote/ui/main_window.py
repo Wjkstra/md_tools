@@ -62,6 +62,7 @@ class MainWindow(QMainWindow):
         self.sidebar.open_file_requested.connect(self.open_file)
         self.sidebar.jump_requested.connect(self.jump_heading)
         self.sidebar.return_editor_requested.connect(self.focus_editor)
+        self.sidebar.open_search_result.connect(self.open_search_result)
 
         splitter = QSplitter()
         splitter.addWidget(self.sidebar)
@@ -298,6 +299,7 @@ class MainWindow(QMainWindow):
         m_view.addAction(action("切换侧边栏", self.toggle_sidebar, "Ctrl+J"))
         m_view.addAction(action("转到文件树", lambda: self.focus_sidebar("files"), "Ctrl+Shift+E"))
         m_view.addAction(action("转到大纲", lambda: self.focus_sidebar("outline"), "Ctrl+Shift+L"))
+        m_view.addAction(action("在文件夹中搜索", lambda: self.focus_sidebar("search"), "Ctrl+Shift+F"))
         m_view.addAction(action("返回编辑器", self.focus_editor, "Ctrl+Alt+E"))
         m_view.addAction(action("下一个标签", lambda: self._next_tab(1), "Ctrl+Tab"))
         m_view.addAction(action("上一个标签", lambda: self._next_tab(-1), "Ctrl+Shift+Tab"))
@@ -413,6 +415,36 @@ class MainWindow(QMainWindow):
 
     def jump_heading(self, block_index) -> None:
         self.current and self.current.jump_heading(block_index)
+
+    def open_search_result(self, path: str, line: int) -> None:
+        session = self._find_session_for_path(path)
+        if session is None:
+            self.open_file(path)
+            session = self.current
+        else:
+            self.tabs.setCurrentIndex(self.tabs.indexOf(session))
+        # 打开后定位到目标行（源码模式按行跳转；渲染模式定位块）
+        if session is not None and line > 0:
+            if session.mode == "source":
+                session.source.goto_line(line)
+            else:
+                self._locate_line_in_live(session, path, line)
+
+    def _locate_line_in_live(self, session: EditorSession, path: str, line: int) -> None:
+        """渲染后模式：按文件行号算出字符偏移，定位到所在块并滚动。"""
+        from ..editor.block_model import find_block_index
+
+        try:
+            text = Path(path).read_text(encoding="utf-8")
+        except OSError:
+            return
+        lines = text.splitlines(keepends=True)
+        char_offset = sum(len(l) for l in lines[: line - 1])
+        idx = find_block_index(session.doc.model, char_offset)
+        # 块内行偏移（传给页面以放置光标）
+        block = session.doc.model.blocks[idx]
+        in_block = char_offset - block.start
+        session.editor_command("jumpToLine", idx, in_block)
 
     def open_folder_dialog(self) -> None:
         folder = QFileDialog.getExistingDirectory(self, "打开文件夹")

@@ -118,6 +118,8 @@ mdnote/
 │       └── vendor/        # 离线内置的 KaTeX、Mermaid
 ├── services/
 │   ├── markdown_engine.py # Python-Markdown 封装：Pygments、任务列表、nl2br
+│   ├── plugin_loader.py   # 用户插件发现与加载
+│   ├── search_service.py  # 文件夹检索（后台 QThread）
 │   ├── image_service.py   # 图片拷贝 / base64 落盘，返回嵌入引用
 │   └── exporter.py        # HTML / PDF / 图片导出、Pandoc 调用
 └── ui/

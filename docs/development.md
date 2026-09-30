@@ -70,12 +70,13 @@ print(_safe_html("<p onclick='x'>a</p>"))
 
 ## 5. 测试
 
-详见独立的 [测试文档](testing.md)。两层套件：
+详见独立的 [测试文档](testing.md)。套件：
 
 | 套件 | 覆盖 | 命令 |
 | --- | --- | --- |
 | `tests/test_editor.py` | 纯函数：各块类型回车、合并、缩进、空格触发、包裹、序列化往返（33 项） | `python tests/test_editor.py` |
 | `tests/test_plugin_loader.py` | 插件目录扫描、导入、扩展参与渲染、错误隔离（8 项） | `python tests/test_plugin_loader.py` |
+| `tests/test_search_service.py` | 文件名/正文检索、递归、忽略目录、大小写、上限（11 项） | `python tests/test_search_service.py` |
 | `tests/test_live_editor.py` | 真实 WebEngine 页面端到端交互：输入、块切换、表格、命令面板、焦点导航、保存等（40 项） | `python -m unittest tests.test_live_editor` |
 
 提交前应确保两层均通过。

@@ -30,7 +30,8 @@ python -m unittest tests.test_live_editor
 | --- | --- | --- | --- |
 | `tests/test_editor.py` | 块解析、智能回车、合并、缩进、空格触发、包裹、序列化往返 | 33 项断言 | ✅ 通过 |
 | `tests/test_plugin_loader.py` | 插件目录扫描、按名导入、扩展参与渲染、错误隔离 | 8 项断言 | ✅ 通过 |
-| `tests/test_live_editor.py` | 真实 `QWebEngineView` + `QWebChannel` 的端到端交互 | 40 个测试 | ✅ 通过（约 27s） |
+| `tests/test_search_service.py` | 文件名 / 正文检索、递归、跳过忽略目录、大小写、上限 | 11 项断言 | ✅ 通过 |
+| `tests/test_live_editor.py` | 真实 `QWebEngineView` + `QWebChannel` 的端到端交互 | 40 个测试 | ✅ 通过（约 30s） |
 
 ## 集成测试覆盖范围
 

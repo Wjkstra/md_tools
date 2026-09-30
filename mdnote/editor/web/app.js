@@ -521,6 +521,17 @@ const App = {
     } else this.switchTo(index, {caret:0});
   },
 
+  jumpToLine(index, inBlockOffset) {
+    if (this.pendingTransform) {
+      this.pendingInput.push(() => this.jumpToLine(index, inBlockOffset));
+      return;
+    }
+    const block = document.querySelector(`.block[data-index="${index}"]`);
+    if (block) block.scrollIntoView({ block: "center" });
+    // 进入该块并把光标放到块内偏移
+    this.switchTo(index, { caret: Math.max(0, inBlockOffset) });
+  },
+
   startEdit(index, point, fixedCaret = null) {
     if (!this.blocks[index]) return;
     const raw = this.blocks[index].raw;

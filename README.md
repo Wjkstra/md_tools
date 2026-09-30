@@ -66,6 +66,8 @@ MdNote 把「写作」与「排版」合二为一，提供两种由你掌控的�
 - **专注模式**（`F8`）：仅当前块高亮，其余变暗
 - **打字机模式**（`F9`）：光标保持在屏幕中部
 - 侧边栏：文件树（双击打开）+ 大纲（点击跳转、当前章节高亮）
+  + **搜索**（`Ctrl+Shift+F`）：在已打开的文件夹中按文件名与正文检索，
+    点击结果可打开文件并定位到具体行；后台线程执行，不阻塞界面
 - 状态栏：保存状态、字数 / 字符 / 行数、阅读时长、当前模式
 
 ### 文件、图片与导出
@@ -109,6 +111,7 @@ python -m mdnote
 ```bash
 python tests/test_editor.py          # 编辑器变换纯函数回归
 python tests/test_plugin_loader.py   # 插件加载器
+python tests/test_search_service.py  # 文件夹检索
 python -m unittest tests.test_live_editor   # WebEngine 集成测试（真实页面交互）
 ```
 
@@ -160,7 +163,7 @@ makensis installer/setup.nsi
 | 查找下一个 / 上一个 | `F3` / `Shift+F3` |
 | 切换源码 / 渲染后模式 | `Ctrl+/` |
 | 命令面板 | `Ctrl+Shift+P` |
-| 侧边栏：切换 / 文件树 / 大纲 / 返回编辑器 | `Ctrl+J` / `Ctrl+Shift+E` / `Ctrl+Shift+L` / `Ctrl+Alt+E` |
+| 侧边栏：切换 / 文件树 / 大纲 / 文件夹搜索 / 返回编辑器 | `Ctrl+J` / `Ctrl+Shift+E` / `Ctrl+Shift+L` / `Ctrl+Shift+F` / `Ctrl+Alt+E` |
 | 下一 / 上一区域焦点 | `F6` / `Shift+F6` |
 | 专注模式 / 打字机模式 | `F8` / `F9` |
 | 设置 | `Ctrl+,` |
@@ -225,9 +228,10 @@ docs/                   完整技术文档
 ## 🗺️ 规划方向
 
 - 超长文档的分块按需排版
-- 文件夹全文检索、更多内置主题、自动更新
+- 更多内置主题、自动更新
 
-> **多标签**与**自定义扩展**已支持，分别见功能一览与[扩展与插件开发](docs/plugin-development.md)。
+> **多标签、文件夹检索、自定义扩展**均已支持，见功能一览与
+> [扩展与插件开发](docs/plugin-development.md)。
 
 ## 📄 许可证
 
