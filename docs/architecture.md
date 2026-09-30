@@ -1,79 +1,86 @@
 # 架构设计
 
-本文描述 MdNote 的整体架构：进程模型、分层结构、模块职责、IPC 契约与关键运行流程。
+本文描述 MdNote 的整体架构：进程 / 线程模型、分层结构、模块职责、
+Python 与页面之间的 QWebChannel 契约，以及关键运行流程。
 
 ## 1. 设计目标
 
 | 目标 | 架构决策 |
 | --- | --- |
-| 可用性 | 实时渲染 + 单块源码编辑；快捷键、模式切换、会话恢复 |
-| 性能 / 长文档低负载 | 块级文档模型 + 视口虚拟化；重型库动态加载；LRU 缓存 |
-| 可扩展性 | markdown-it 插件机制 + 外部插件沙箱加载；渲染器/控制器分层 |
-| 安全性 | 最小权限三进程模型；所有进入 DOM 的内容强制净化；协议白名单 |
-| 无内存泄漏 | 统一 `Lifetime` 生命周期；事件走 AbortSignal；卸载即释放 |
+| 流畅的编辑体验 | 渲染后编辑 + 源码编辑双模式；快捷键、智能回车、会话恢复 |
+| 原生性能 | PySide6 原生控件；排版交给隔离的 WebEngine 进程 |
+| 可扩展性 | 基于 Python-Markdown 的扩展机制；渲染器与控制器分层 |
+| 安全性 | 最小权限桥接；进入页面的内容强制处理；导航与外部协议受控 |
+| 可维护性 | 分层清晰；规范文本作为唯一事实源，其余均为可重建派生物 |
 
-## 2. 进程模型
+## 2. 进程与线程模型
 
-MdNote 由 Electron 的三类执行环境组成，彼此隔离，通过**显式契约**通信：
+应用以 Python 解释器启动，进程空间中运行 Qt 事件循环；
+Qt WebEngine 另外派生若干基于 Chromium 的辅助进程，彼此隔离：
 
 ```mermaid
 flowchart LR
-  subgraph Main["主进程（Node.js，完整系统权限）"]
-    M["窗口/生命周期<br/>IPC 处理器<br/>文件服务 · 监视器<br/>导出服务 · 自定义协议"]
+  subgraph App["应用主进程（Python，持有系统权限）"]
+    GUI["GUI 主线程<br/>QApplication 事件循环<br/>所有控件 / 窗口"]
+    SVC["服务层<br/>Markdown · 图片 · 导出 · 设置"]
+    POOL["线程池（按需）<br/>QThreadPool / QThread"]
   end
 
-  subgraph Pre["Preload（受限 CJS）"]
-    P["contextBridge<br/>白名单 API 桥接"]
+  subgraph Web["WebEngine 辅助进程（Chromium，独立、可沙箱）"]
+    REND["渲染进程<br/>HTML/CSS/JS 排版"]
+    GPU["GPU 进程<br/>合成 / 光栅化"]
+    UTIL["工具进程<br/>网络 / 音频等"]
   end
 
-  subgraph Rend["渲染进程（Chromium，沙箱）"]
-    UI["UI 组件"]
-    ED["编辑器内核"]
-    SV["服务层<br/>Markdown / 净化 / 主题…"]
-  end
-
-  M -- "menu:action / watch:change" --> P
-  P -- "contextBridge: window.mdnote" --> Rend
-  Rend -- "ipcRenderer.invoke（白名单通道）" --> P
-  P -- "ipcRenderer" --> M
-  M -- "mdasset:// 图片字节" --> Rend
+  GUI -- "QWebChannel（私有传输）" --> REND
+  REND -- "返回 JSON（Slot 调用）" --> GUI
+  GUI -- "文件系统 / 子进程" --> SVC
+  SVC -. "耗时任务" .-> POOL
 ```
 
-### 各环境权限
+### 各部分职责与边界
 
-| 环境 | Node 能力 | 可访问资源 | 安全配置 |
+| 部分 | 运行位置 | 能力 | 边界 |
 | --- | --- | --- | --- |
-| **主进程** (`src/main`) | 完整 | 文件系统、子进程、窗口 | 只运行我方代码，不加载第三方 |
-| **Preload** (`src/preload`) | 受限（沙箱 polyfill：仅 `electron`、部分 Node 模块） | 按通道转发 IPC | 无业务逻辑，只做桥接 |
-| **渲染进程** (`src/renderer`) | **无** | DOM、`window.mdnote` | `sandbox + contextIsolation + nodeIntegration:false` |
+| **GUI 主线程** | 应用进程 | 全部控件、文件 / 子进程调用 | 只运行我方代码；不在此执行第三方页面脚本 |
+| **服务层** | 应用进程（可移入线程池） | Markdown 渲染、图片落盘、导出、设置持久化 | 不直接持有 UI 引用 |
+| **WebEngine 渲染进程** | 独立进程 | 页面 DOM、排版、页面 JS | 无 Python 能力；只能经 QWebChannel 访问白名单方法 |
+| **GPU / 工具进程** | 独立进程 | 合成、网络等 | 由 WebEngine 管理，应用不直接通信 |
+
+### 单实例守护
+
+应用通过本地命名套接字保证只运行一个实例（`mdnote/app.py`）：
+启动时尝试连接固定名称的本地服务器，若已存在则直接退出；
+否则创建服务器并继续。再次启动安装程序或可执行文件时不会产生第二个窗口。
 
 ## 3. 分层架构
 
-渲染进程内部分为四层，依赖方向自上而下，**不存在反向依赖**：
+应用进程内部分为四层，依赖方向自上而下，不存在反向依赖：
 
 ```mermaid
 flowchart TB
-  subgraph L4["UI 层 · ui/"]
+  subgraph L4["UI 层 · mdnote/ui/"]
     direction LR
-    sidebar["Sidebar 侧边栏"] --- status["StatusBar 状态栏"] --- dialog["Dialogs 对话框"] --- find["FindBar 查找条"]
+    mw["MainWindow 主窗口"] --- sb["Sidebar 侧边栏"]
+    st["StatusBar 状态栏"] --- fb["FindBar 查找栏"]
+    dg["Dialogs 对话框"]
   end
 
   subgraph L3["编排层"]
-    app["App（app.ts）<br/>组装界面 / 文件生命周期 / 菜单分发 / 模式切换"]
+    mw3["MainWindow 承担编排<br/>组装界面 / 文件生命周期 / 模式切换 / 关闭守卫"]
   end
 
-  subgraph L2["编辑器层 · editor/"]
+  subgraph L2["编辑器层 · mdnote/editor/"]
     direction LR
-    live["LiveEditor 实时编辑器"] --- src_["SourceEditor 源码编辑器"]
-    vl["VirtualList 虚拟化"] --- bv["BlockViewFactory"]
-    model["BlockModel 块模型"] --- te["TableEditor 表格"]
+    wv["WebPreview 渲染后模式"] --- se["SourceEditor 源码模式"]
+    bm["block_model 块模型"] --- tr["transforms 编辑变换"]
+    hl["md_highlighter 语法高亮"]
   end
 
   subgraph L1["服务 / 核心层"]
     direction LR
-    md["Markdown 引擎<br/>+ DOMPurify"] --- set["Settings"] --- theme["Themes"]
-    wc["WordCount"] --- exp["Exporter"] --- plug["PluginManager"]
-    core["Lifetime · LRU · EventBus · DOM 工具"]
+    md["MarkdownEngine"] --- im["图片服务"] --- ex["导出服务"]
+    set["Settings"] --- wc["WordCount"] --- cf["config 路径"]
   end
 
   L4 --> L3
@@ -82,97 +89,102 @@ flowchart TB
   L2 --> L1
 ```
 
-- **核心层（core/）**：与业务无关的基础设施。`Lifetime`（资源生命周期）、`LRU`（定容缓存）、`EventBus`（类型安全事件）、DOM 工具函数
-- **服务层（services/）**：Markdown 引擎与净化、设置、主题、字数统计、导出、插件管理
-- **编辑器层（editor/）**：文档块模型、虚拟化列表、实时 / 源码编辑器、表格控制器、编辑变换、历史记录
-- **编排层（app.ts）**：唯一持有全局状态（当前文件、模式、dirty）的协调者
-- **UI 层（ui/）**：纯展示组件，通过回调与 App 通信，不直接操作编辑器内核
+- **核心层（`core/`）**：设置服务、字数统计等基础设施
+- **服务层（`services/`）**：Markdown 引擎、图片落盘、导出
+- **编辑器层（`editor/`）**：块模型、编辑变换、两种编辑器及 Web 资源
+- **编排层**：`MainWindow` 是唯一持有全局状态（当前文件、模式、dirty）的协调者
+- **UI 层（`ui/`）**：展示组件，通过信号 / 方法与编排层通信
 
 ## 4. 目录结构与模块职责
 
 ```
-src/
-├── shared/
-│   └── types.ts               # 跨进程共享类型、DEFAULT_SETTINGS、IPC 契约（MdNoteAPI）
-├── main/                      # 主进程
-│   ├── index.ts               # 应用/窗口生命周期、CSP 下发、导航与弹窗拦截、单实例
-│   ├── ipc.ts                 # 全部 IPC 处理器集中注册
-│   ├── fs-service.ts          # 文本读写、目录列举、图片导入（拷贝/落盘）
-│   ├── watcher-manager.ts     # 文件夹递归监视器（事件合并，单句柄）
-│   ├── asset-protocol.ts      # mdasset:// 自定义协议（图片白名单）
-│   ├── export-service.ts      # PDF/图片离屏窗口导出、Pandoc 子进程
-│   ├── window-state.ts        # 窗口位置/尺寸/最大化持久化
-│   └── menu.ts                # 应用菜单与快捷键
-├── preload/
-│   └── index.ts               # contextBridge 暴露白名单 API（window.mdnote）
-└── renderer/
-    ├── index.html             # 渲染页面骨架
-    ├── welcome.md             # 首次启动欢迎文档
-    └── src/
-        ├── main.ts            # 渲染入口：样式导入、App 启动
-        ├── app.ts             # 编排层
-        ├── global.d.ts        # window.mdnote 全局类型
-        ├── core/              # Lifetime / LRU / EventBus / DOM 工具
-        ├── services/          # markdown / settings / themes / word-count / exporter / plugins
-        ├── editor/            # 文档模型与两种编辑器、虚拟化、表格、变换、历史
-        ├── ui/                # sidebar / statusbar / dialogs / findbar
-        └── styles/            # 4 套主题变量 + 布局 + 排版 + 组件样式
+mdnote/
+├── app.py                 # QApplication、单实例守护、启动入口
+├── config.py              # 用户数据目录、Web 资源路径（兼容打包环境）
+├── __main__.py            # 支持 python -m mdnote
+├── core/
+│   ├── settings.py        # AppSettings 数据类、JSON 持久化、变更通知
+│   └── word_count.py      # 中英文混排字数 / 字符 / 行数 / 阅读时长
+├── editor/
+│   ├── block_model.py     # 块模型：解析 / 序列化 / 偏移 / 标题提取
+│   ├── transforms.py      # 纯函数：回车拆分 / 合并 / 缩进 / 空格触发
+│   ├── source_editor.py   # QPlainTextEdit：行号区、自动括号、Tab 缩进
+│   ├── md_highlighter.py  # QSyntaxHighlighter：Markdown 规则高亮
+│   ├── webview.py         # WebPreview + QWebChannel Bridge + LiveDocument
+│   └── web/               # 排版页面
+│       ├── index.html     # 页面骨架（加载离线 KaTeX / Mermaid）
+│       ├── styles.css     # 排版样式、明暗主题、专注模式
+│       ├── app.js         # 前端控制器：块渲染 / 点击编辑 / 按键
+│       └── vendor/        # 离线内置的 KaTeX、Mermaid
+├── services/
+│   ├── markdown_engine.py # Python-Markdown 封装：Pygments、任务列表、nl2br
+│   ├── image_service.py   # 图片拷贝 / base64 落盘，返回嵌入引用
+│   └── exporter.py        # HTML / PDF / 图片导出、Pandoc 调用
+└── ui/
+    ├── main_window.py     # 主窗口：菜单、动作、文件生命周期
+    ├── sidebar.py         # 文件树 + 大纲
+    ├── statusbar.py       # 状态栏
+    ├── findbar.py         # 查找 / 替换
+    └── dialogs.py         # 原生对话框、设置面板
+
+launch.py                  # 打包入口（绝对导入）
+tests/test_editor.py       # 编辑器变换回归测试
+installer/setup.nsi        # NSIS 安装程序脚本（支持自定义安装路径）
 ```
 
-## 5. IPC 契约
+## 5. Python ↔ 页面 桥接契约
 
-所有跨进程通信都在 `src/shared/types.ts` 的 `MdNoteAPI` 中声明，
-由 preload 实现、主进程 `ipc.ts` 处理。通道面保持最小：
+实时模式下，页面 JavaScript 不直接接触系统能力，所有操作都通过
+QWebChannel 暴露的一个 `Bridge` 对象（`mdnote/editor/webview.py`）进行。
+参数与返回值统一使用 JSON 字符串，保持两端解耦。
 
-### 渲染进程 → 主进程（invoke/on）
+### 页面 → Python（在 Bridge 上以 Slot 暴露）
 
-| 通道 | 方向 | 用途 |
-| --- | --- | --- |
-| `file:read` / `file:write` | invoke | 读写文本文件（读取有 50MB 上限） |
-| `dialog:open` / `dialog:save` / `dialog:folder` | invoke | 原生打开 / 保存 / 文件夹对话框 |
-| `dir:list` | invoke | 惰性列举单层目录 |
-| `dir:watch` / `dir:unwatch` | invoke | 建立 / 关闭文件夹监视器 |
-| `settings:load` / `settings:save` | invoke | 设置读写 |
-| `image:import` / `image:save-buffer` | invoke | 图片拷贝 / 缓冲区落盘，返回嵌入路径 |
-| `shell:open-path` / `shell:show-item` / `shell:open-external` | invoke/on | 系统打开、资源管理器定位、外链浏览器（scheme 白名单） |
-| `export:html` / `export:pdf` / `export:image` | invoke | 三类内置导出 |
-| `pandoc:available` / `pandoc:export` | invoke | Pandoc 检测与调用 |
-| `custom-css:load` / `custom-css:open` | invoke | 自定义 CSS 读取 / 用系统编辑器打开 |
-| `plugins:list` / `plugins:source` | invoke | 插件清单 / 读取插件源码（限插件目录内） |
-| `find:in-page` / `find:stop` | on | 页面内查找 |
-| `context-menu` | invoke | 原生右键菜单，返回所选 id |
-| `path:user-data` | sendSync | 获取用户数据目录（仅启动期） |
+| 方法 | 参数 | 返回 | 用途 |
+| --- | --- | --- | --- |
+| `loadBlocks` | — | 块列表 JSON | 读取全部块（含类型、raw、渲染 HTML） |
+| `startEdit` | 块索引 | 字符串 | 获取该块原始 Markdown |
+| `commit` | 块索引、raw | 块列表 JSON | 提交块编辑并返回最新块列表 |
+| `transform` | 块索引、命令、偏移、当前 raw | 变换结果 JSON | 执行回车 / 合并 / 缩进 / 空格触发 |
+| `toggleTask` | 块索引 | 块列表 JSON | 切换任务列表复选状态 |
+| `addImage` | 参数 JSON | 字符串 | 图片 base64 落盘，返回 `![]()` 引用 |
+| `updateTable` | 块索引、表格 Markdown | 块列表 JSON | 表格单元格编辑回写 |
+| `undo` / `redo` | — | 块列表 JSON | 撤销 / 重做 |
 
-### 主进程 → 渲染进程
+`transform` 的命令取值：`enter`、`backspace`、`tab`、`shiftTab`、`spaceProbe`。
 
-| 通道 | 用途 |
-| --- | --- |
-| `menu:action` | 菜单 / 快捷键动作（`MenuAction` 枚举见 types.ts） |
-| `watch:change` | 文件夹变更事件（已做合并去重） |
+### Python → 页面
 
-> 所有渲染进程提交的参数均为普通可序列化数据，主进程在调用服务前做路径规范化与
-> 白名单校验；渲染进程永远拿不到文件系统句柄。
+两种方式：
+
+- **信号**：`Bridge` 上定义的 `Signal` 可携带数据推送到页面
+- **`page().runJavaScript(...)`**：直接执行页面脚本（如应用外观偏好、滚动定位）
+
+> 页面始终拿不到文件句柄、子进程句柄或任意路径访问能力，
+> 只能表达「请对当前文档执行这件白名单内的操作」。
 
 ## 6. 关键运行流程
 
-### 6.1 启动流程
+### 6.1 启动与会话恢复
 
 ```mermaid
 sequenceDiagram
-  participant A as app.whenReady
-  participant S as 主进程服务
-  participant W as BrowserWindow
-  participant R as 渲染进程 App
+  participant P as app.run
+  participant W as MainWindow
+  participant S as Settings
+  participant V as WebPreview
 
-  A->>S: installCsp()（按环境下发 CSP）
-  A->>S: loadWindowState()
-  A->>W: createWindow（sandbox/contextIsolation）
-  W->>R: 加载页面，preload 注入 window.mdnote
-  R->>S: settings:load
-  R->>R: applyTheme / loadCustomCss
-  R->>S: 若有 lastFolder → dir:watch
-  R->>S: 有 lastFile → file:read，否则载入欢迎文档
-  R->>R: 恢复侧边栏状态、渲染状态栏
+  P->>P: 获取单实例锁
+  P->>W: 创建主窗口、组装组件
+  W->>S: 读取设置（JSON）
+  W->>V: 建立 QWebChannel，加载本地页面
+  V->>W: 页面就绪，请求块列表
+  alt 存在上次文件且仍可用
+    W->>W: 读取文件并装载
+  else 无上次文件
+    W->>W: 装载内置欢迎文档
+  end
+  W->>W: 恢复侧边栏 / 状态栏
 ```
 
 ### 6.2 实时编辑流程（点击 → 编辑 → 提交）
@@ -180,76 +192,58 @@ sequenceDiagram
 ```mermaid
 sequenceDiagram
   participant U as 用户
-  participant L as LiveEditor
-  participant V as VirtualList
-  participant M as BlockModel
-  participant H as EditHistory
+  participant J as 页面 app.js
+  participant B as Bridge
+  participant D as LiveDocument
+  participant M as 块模型
 
-  U->>L: mousedown 块
-  L->>L: enterEditing：块切 contentEditable，显示 raw 源码
-  U->>L: 键盘输入
-  Note over L: Enter=块拆分 · 行首 Backspace=块合并<br/>Tab=列表缩进 · 空格=标记触发<br/>Ctrl+B/I=选区包裹
-  U->>L: 点击别处 / Esc → commitEditing
-  L->>H: record({start, before, after, caret})
-  L->>L: 修改规范文本 text
-  L->>M: buildModel(text) 重建块模型
-  L->>V: rebuild(滚动锚点)
-  V-->>U: 仅挂载视口附近的块并渲染
-  L->>L: enterEditing（延续光标到新位置）
+  U->>J: mousedown 块
+  J->>B: startEdit(index)
+  B-->>J: 块 raw
+  J->>J: 该块转 contentEditable，显示源码，光标定位
+  U->>J: 键盘输入
+  Note over J: Enter=智能拆分<br/>行首 Backspace=合并<br/>Tab=缩进 · 空格=标记触发
+  U->>J: 点击别处 / Esc
+  J->>B: commit(index, raw)
+  B->>D: 更新规范文本
+  D->>M: build_model(text) 重建块模型
+  B-->>J: 最新块列表
+  J->>U: 重新渲染排版结果
 ```
 
-### 6.3 虚拟化挂载流程
+### 6.3 模式切换
 
-```mermaid
-flowchart TD
-  A["scroll / resize 事件（rAF 节流）"] --> B{"计算可视区间<br/>[scrollTop-400, bottom+400]"}
-  B --> C["二分查找 pos[] 得到行索引区间"]
-  C --> D["离开区间的行：unmount<br/>unobserve → dispose Lifetime → 移除 DOM"]
-  C --> E["进入区间的行：mount<br/>translate3d 定位 → 渲染 HTML → observe"]
-  E --> F["ResizeObserver 实测高度"]
-  F --> G["增量更新 pos[] 与总高<br/>视口上方变化反向补偿滚动"]
-```
+- 渲染后 → 源码：取当前规范文本写入 `SourceEditor`，切换堆叠页面，聚焦编辑器
+- 源码 → 渲染后：把编辑器文本写回 `LiveDocument`，重建块模型并渲染
+- 切换时不丢失内容；切换后大纲、字数均以当前文本重新计算
 
-## 7. 核心抽象
+### 6.4 关闭守卫
 
-### 7.1 Lifetime（资源生命周期）
+点击窗口关闭按钮或按 `Ctrl+Q` 时：
 
-所有需要清理的东西（事件监听、Observer、定时器、订阅）都登记到 `Lifetime`：
+1. 若无未保存修改，直接关闭
+2. 若有修改，弹出原生对话框：**保存 / 不保存 / 取消**
+   - 保存：写入文件（若需另存为被取消，则不退出）后关闭
+   - 不保存：直接关闭
+   - 取消：窗口保留
 
-- `lt.on(target, type, handler)` —— 内部用 `AbortController` 的 signal 注册，`dispose()` 时一次性全部移除
-- `lt.interval() / lt.timeout()` —— 定时器自动清理
-- `lt.add(disposeFn)` —— 任意自定义释放逻辑
-- `dispose()` 逆序执行、幂等（只执行一次）；组件树中每层持有自己的 Lifetime，父层释放时子层先释放
-
-这是防内存泄漏的主干机制：**块卸载 → 行级 Lifetime dispose → 监听/Observer/控制器全部失效**。
-
-### 7.2 LRU（定容缓存）
-
-Map 实现的 O(1) LRU，触达即刷新顺序，超容量淘汰最旧项并回调释放。
-用于块渲染 HTML 缓存（容量 300）与实测高度缓存（限量 2000 清理）。
-
-### 7.3 EventBus
-
-微型类型安全事件总线，订阅可绑定 Lifetime 自动退订；监听器执行互相隔离异常。
-
-## 8. 状态归属
+## 7. 状态归属
 
 | 状态 | 持有者 | 持久化 |
 | --- | --- | --- |
-| 规范 Markdown 文本 | LiveEditor（实时）/ SourceEditor（源码） | 保存时写文件 |
-| 文档块模型 | LiveEditor（每次文本变更重建） | 不持久化（派生数据） |
-| 当前文件路径 / 模式 / dirty | App | lastFile 入设置 |
-| 用户设置 | SettingsService（单例） | userData/settings.json |
-| 窗口位置尺寸 | window-state 模块 | userData/window-state.json |
-| 编辑历史 | EditHistory（内存，容量 300） | 不持久化 |
+| 规范 Markdown 文本 | `LiveDocument`（实时）/ `SourceEditor`（源码） | 保存时写入文件 |
+| 文档块模型 | `LiveDocument`（文本变更时重建） | 不持久化（派生数据） |
+| 当前文件路径 / 模式 / dirty | `MainWindow` | lastFile 写入设置 |
+| 用户设置 | `SettingsService` | 用户数据目录 `settings.json` |
+| 撤销 / 重做 | `LiveDocument`（快照栈） | 不持久化 |
 
-**关键原则**：规范文本是唯一事实源，块模型、大纲、字数统计、TOC 全部是它的**派生数据**，
-任何时候都可以丢弃重建，不存在「第二份需要同步的文档」。
+**关键原则**：规范文本是唯一事实源；块模型、大纲、字数、目录都是它的派生数据，
+任何时候都可以丢弃重建，不存在需要额外同步的第二份文档。
 
-## 9. 相关文档
+## 8. 相关文档
 
 - [数据模型](data-model.md)：块切分规则与偏移不变量
-- [性能设计](performance.md)：虚拟化与缓存细节、基准数据
-- [安全模型](security.md)：隔离、净化与 CSP
-- [插件开发](plugin-development.md)：扩展点与 API
-- [开发指南](development.md)：调试、测试与规范
+- [性能设计](performance.md)：渲染、缓存与长文档优化
+- [安全模型](security.md)：进程隔离、桥接边界与导航控制
+- [插件开发](plugin-development.md)：Python-Markdown 扩展机制
+- [开发指南](development.md)：调试、测试、构建与发版

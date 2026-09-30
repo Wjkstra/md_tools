@@ -1,8 +1,22 @@
-node_modules/
-out/
-release/
+# Python
+__pycache__/
+*.py[cod]
+*.egg-info/
+.pytest_cache/
+
+# 虚拟环境
+.venv/
+venv/
+
+# PyInstaller
+build/
 dist/
-*.log
+*.spec.bak
+
+# 安装程序构建产物
+MdNote-Setup.exe
+
+# 编辑器 / 系统
+.vscode/
+.idea/
 .DS_Store
-.icongen/
-*.tsbuildinfo

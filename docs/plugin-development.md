@@ -1,209 +1,190 @@
-# 插件开发
+# 扩展与插件开发
 
-MdNote 的可扩展性通过两层机制提供：
+MdNote 的可扩展性建立在 **Python-Markdown 扩展机制**之上：
+Markdown 的解析由一系列处理器（processor）组成，你可以注册新的处理器来
+增加语法、改写树结构或调整输出。本文介绍扩展点、结构与完整示例。
 
-- **内置扩展**：随应用分发的 markdown-it 扩展（如 `==高亮==`），在设置中开关
-- **外部插件**：放置在用户数据目录、由用户显式启用的独立插件
-
-本文介绍扩展点、插件结构、API、完整示例与调试方法。
+> 术语说明：Python-Markdown 中的「Extension（扩展）」是向解析管线
+> 添加处理器的标准方式，这是当前即可使用的能力。
+> 将第三方扩展放入用户数据目录、在设置面板勾选启停的「自动加载器」
+> 属于 **（规划中）** 能力；在此之前，可按本文方式在代码中启用扩展。
 
 ## 1. 扩展点总览
 
-| 扩展点 | 能力 | 提供方式 |
+| 扩展点 | 能力 | 基类 / 注册位置 |
 | --- | --- | --- |
-| markdown-it 插件 | 新增块 / 行内语法、改写渲染规则、注册新的 token 渲染器 | `api.addMarkdownItPlugin()` |
-| 设置读取 | 读取当前全部用户设置 | `api.settings` |
+| 行内处理器 | 识别行内语法并生成元素（如自定义标记、替换符） | `InlineProcessor`，`md.inlinePatterns.register` |
+| 块处理器 | 识别块级结构（如自定义容器、提示块） | `BlockProcessor`，`md.parser.blockprocessors.register` |
+| 树处理器 | 在生成的元素树上做整体改写 | `Treeprocessor`，`md.treeprocessors.register` |
+| 预处理 / 后处理 | 在解析前调整源行 / 输出后处理 | `Preprocessor` / `Postprocessor` |
 
-> 插件有意被限制在 Markdown 语法扩展层。插件运行在沙箱渲染进程中，
-> **没有 Node 能力、没有文件系统、没有原始 IPC**。
+扩展产出的 HTML 与其他渲染内容一样经过 nh3 白名单净化，
+因此输出标签必须是允许的排版标签（如 `span`、`div` 等）。
 
-## 2. 插件文件结构
+## 2. 扩展文件结构
 
-插件位于用户数据目录下的 `plugins/` 文件夹：
+一个扩展就是一个提供 `makeExtension()` 的 Python 模块：
 
 ```
-<userData>/plugins/
+my_extension.py
+```
+
+规划中的插件目录约定：
+
+```
+<用户数据目录>/plugins/
 └── my-plugin/
-    ├── package.json     # 声明 name 与 main
-    └── index.js         # 插件入口（ESM，自包含单文件）
+    ├── __init__.py        # 提供 makeExtension
+    └── README.md
 ```
 
-`package.json`：
+查看用户数据目录：应用内设置面板，或：
 
-```json
-{
-  "name": "my-plugin",
-  "version": "1.0.0",
-  "main": "index.js"
-}
-```
-
-查看用户数据目录路径：设置面板插件区提示，或菜单「帮助 → 设置」。
-Windows 下通常为 `%AppData%/md-note/`。
-
-### 自包含要求
-
-插件入口通过 Blob 以 ES 模块方式导入，**无法 `require('npm 包')`。
-若要使用第三方 markdown-it 插件（如 markdown-it-container），
-需用 esbuild / Rollup 将其与入口打包成单个文件：
-
-```bash
-npx esbuild src/index.js --bundle --format=esm --outfile=index.js
+```python
+from mdnote.config import app_data_dir
+print(app_data_dir())
 ```
 
 ## 3. 生命周期
 
 ```mermaid
 stateDiagram-v2
-  [*] --> Discovered: 启动时扫描 plugins/
-  Discovered --> Enabled: 用户在设置中勾选并重启
-  Enabled --> Active: 应用启动读取源码并 import
-  Active --> Disabled: 用户取消勾选并重启
-  Active --> Active: 每次新窗口启动 → activate(api)
+  [*] --> Defined: 模块提供 makeExtension
+  Defined --> Active: 引擎构建时传入扩展实例
+  Active --> Active: extendMarkdown 注册处理器
+  Active --> [*]: 引擎 reset / 应用退出
 ```
 
-- 模块需 **`export default`** 一个含 `activate` 的对象
-- `activate(api)` 在编辑器 Markdown 引擎构建时调用
-- `deactivate()` 在应用退出 / 插件卸载时调用（用于清理）
-- **启用 / 禁用需重启应用生效**（设置面板会主动提示）
+- 每次渲染都会构建 / 重置 Markdown 引擎；扩展通过 `extendMarkdown(md)` 注册处理器
+- 处理器是无长期状态的纯解析逻辑；不要在处理器中持有 UI 引用
 
-## 4. PluginAPI 参考
+## 4. 完整示例：行内替换扩展
 
-```typescript
-interface PluginAPI {
-  /** 当前用户设置的只读快照（AppSettings 全部字段） */
-  settings: AppSettings
+`my_extension.py`：
 
-  /**
-   * 注册一个 markdown-it 插件
-   * @param plugin markdown-it 插件函数 (md, ...params) => void
-   * @param params 透传给插件的参数
-   */
-  addMarkdownItPlugin(
-    plugin: (md: MarkdownIt, ...params: unknown[]) => void,
-    ...params: unknown[]
-  ): void
-}
+```python
+"""将 -> 替换为箭头、:ok: 替换为标记的扩展。"""
+
+import xml.etree.ElementTree as etree
+
+from markdown.extensions import Extension
+from markdown.inlinepatterns import InlineProcessor
+
+
+class ReplaceProcessor(InlineProcessor):
+    REPLACEMENTS = {
+        "->": "→",
+        "<-": "←",
+        ":ok:": "✅",
+    }
+
+    def handleMatch(self, match, data):
+        key = match.group(1)
+        if key not in self.REPLACEMENTS:
+            return None, match.start(0), match.end(0)
+        span = etree.Element("span")
+        span.text = self.REPLACEMENTS[key]
+        return span, match.start(0), match.end(0)
+
+
+class ReplaceExtension(Extension):
+    PATTERN = r"(:ok:|->|<-)"
+
+    def extendMarkdown(self, md):
+        # 优先级高于默认规则（数值越大越优先）
+        md.inlinePatterns.register(
+            ReplaceProcessor(self.PATTERN, md), "short-replace", 175
+        )
+
+
+def makeExtension(**kwargs):
+    return ReplaceExtension(**kwargs)
 ```
 
-插件可用的 markdown-it 扩展能力（标准 markdown-it API）：
+### 启用方式（当前可用）
 
-- `md.inline.ruler.push/before/after(name, fn)`：新增行内语法规则
-- `md.block.ruler.push/before/after(name, fn)`：新增块级规则
-- `md.renderer.rules[name]`：自定义 token 的 HTML 输出
-- `md.core.ruler.push(name, fn)`：文档级处理
-- 解析器辅助：`state.push()`、`md.utils.escapeHtml()` 等
+在构建 Markdown 引擎处把扩展加入 extensions 列表，或在获取渲染前
+手动传入。例如直接验证：
 
-## 5. 完整示例：表情短语法插件
+```python
+import markdown
 
-`index.js`（自包含、ESM）：
-
-```javascript
-// 在行内识别 :smile: / :+1: / :rocket: 等短语法，输出对应 emoji
-const EMOJI = {
-  smile: '😄',
-  '+1': '👍',
-  rocket: '🚀',
-  heart: '❤️',
-  tada: '🎉'
-}
-
-function emojiRule(state, silent) {
-  // 必须以 : 起始
-  if (state.src.charCodeAt(state.pos) !== 0x3a /* : */) return false
-
-  const end = state.src.indexOf(':', state.pos + 1)
-  if (end === -1) return false
-
-  const name = state.src.slice(state.pos + 1, end)
-  if (!(name in EMOJI)) return false
-
-  if (!silent) {
-    const token = state.push('emoji_text', 'span', 0)
-    token.content = EMOJI[name]
-    token.markup = `:${name}:`
-  }
-  state.pos = end + 1
-  return true
-}
-
-export default {
-  activate(api) {
-    api.addMarkdownItPlugin((md) => {
-      // 在 escape 规则之后注册，避免影响转义序列
-      md.inline.ruler.after('escape', 'short-emoji', emojiRule)
-      md.renderer.rules.emoji_text = (tokens, idx) => tokens[idx].content
-      console.log('[emoji-plugin] activated, user theme =', api.settings.theme)
-    })
-  },
-  deactivate() {
-    // 规则随引擎销毁自动失效；如有全局监听 / 定时器，在此清理
-  }
-}
+text = "状态 :ok: ，方向 ->"
+html = markdown.markdown(text, extensions=["my_extension"])
+print(html)
+# <p>状态 <span>✅</span> ，方向 <span>→</span></p>
 ```
 
-打包（本例无第三方依赖，文件本身即可直接作为 index.js）。
+> 输出中的 `<span>` 在 nh3 允许列表内，渲染后正常显示。
 
-## 6. 示例：使用 markdown-it-container（需打包）
+## 5. 完整示例：块级提示容器
 
-`src/index.js`：
+为 `::: tip` … `:::` 生成一个提示块：
 
-```javascript
-import container from 'markdown-it-container'
+```python
+import xml.etree.ElementTree as etree
+import re
 
-export default {
-  activate(api) {
-    api.addMarkdownItPlugin(container, 'warning', {
-      render(tokens, idx) {
-        return tokens[idx].nesting === 1
-          ? '<div class="warning-block"><strong>⚠ 注意</strong>'
-          : '</div>'
-      }
-    })
-  }
-}
+from markdown.extensions import Extension
+from markdown.blockprocessors import BlockProcessor
+
+
+class TipBlockProcessor(BlockProcessor):
+    OPEN = re.compile(r"^::: *(\w+)?\s*$")
+
+    def __init__(self, parser):
+        super().__init__(parser)
+        self._kind = "tip"
+
+    def test(self, parent, block):
+        return bool(self.OPEN.match(block.splitlines()[0]))
+
+    def run(self, parent, blocks):
+        first = blocks[0].splitlines()
+        m = self.OPEN.match(first[0])
+        self._kind = (m.group(1) or "tip").strip()
+
+        lines = first[1:]
+        blocks[0] = "\n".join(lines[lines.index(":::") + 1:]) if ":::" in lines else ""
+        inner = "\n".join(lines[: lines.index(":::")]) if ":::" in lines else ""
+
+        box = etree.SubElement(parent, "div", {"class": f"callout callout-{self._kind}"})
+        self.parser.parseChunk(box, inner)
+        if blocks[0] == "":
+            blocks.pop(0)
+        return True
+
+
+class TipExtension(Extension):
+    def extendMarkdown(self, md):
+        md.parser.blockprocessors.register(
+            TipBlockProcessor(md.parser), "tip-block", 175
+        )
+
+
+def makeExtension(**kwargs):
+    return TipExtension(**kwargs)
 ```
 
-打包为自包含文件：
+配合自定义样式即可得到提示块（`div` / `class` 均在净化允许范围内）。
 
-```bash
-npm init -y && npm i markdown-it-container esbuild
-npx esbuild src/index.js --bundle --format=esm --outfile=dist/index.js
-```
+## 6. 安全约束
 
-之后文档中的：
+- 扩展输出与其他 Markdown 内容一样经过 **nh3 白名单净化**
+- 无法输出脚本、内联事件或不在白名单内的标签 / 属性
+- 扩展运行在应用主进程的渲染服务中，但应只做纯文本 / 树变换，
+  不应执行网络访问、子进程或文件写入
+- 不要在处理器中保存会随文档增长的全局状态
 
-```markdown
-::: warning
-这是一条警告
-:::
-```
+## 7. 调试
 
-将渲染为自定义警告块（输出仍受 CSP 约束；如需自定义视觉，
-通过「帮助 → 打开自定义 CSS」添加 `.warning-block { … }`）。
+1. 先用 `markdown.markdown(text, extensions=[...])` 在脚本里单独验证扩展输出
+2. 输出若被净化改变，检查所用标签 / 属性是否在 `editor/webview.py` 的允许列表内
+3. 行内规则不生效时，检查 `register` 的优先级与正则分组
+4. 块规则不生效时，确认 `test()` 能匹配块首行，以及 `run()` 正确消费了输入行
 
-## 7. 安全约束
+## 8. 相关文档
 
-插件产出的内容与其他 Markdown 内容一样经过 **DOMPurify 净化**：
-
-- 无法输出脚本、内联事件、iframe / object
-- 无法引入外部资源（受 CSP 限制）；自定义渲染只应产生安全 HTML
-- 没有任何系统 API；不要尝试探测 `require`、`process`——它们不存在
-- 插件中的事件监听 / 定时器应在 `deactivate()` 中清理
-
-## 8. 调试
-
-1. 按结构放好插件后，打开「设置」→ 插件区应列出插件名
-   - 若未出现：检查 `package.json` 的 `name` / `main` 与 JSON 合法性
-2. 勾选插件 → 应用 → 同意重启
-3. 在 `activate` 中使用 `console.log`，主进程控制台（启动 dev 的终端）
-   会转发渲染进程日志
-4. 插件源码加载失败时终端会打印 `[PluginManager] failed to load <name>`
-5. 开发插件时推荐使用 `npm run dev`（修改插件文件后在应用内
-   `Ctrl+R` 等效重启即可重新读取）
-
-## 9. 相关文档
-
-- [架构设计](architecture.md)：PluginManager 的工作位置
-- [安全模型](security.md)：插件的能力边界
-- [数据模型](data-model.md)：规则与 token 如何进入块模型
+- [架构设计](architecture.md)：Markdown 服务与桥接位置
+- [数据模型](data-model.md)：解析结果如何进入块模型
+- [安全模型](security.md)：扩展输出的净化约束

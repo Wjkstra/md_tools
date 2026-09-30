@@ -1,110 +1,134 @@
 # MdNote
 
-> 一款类 Typora 的 Markdown 文档编辑 / 阅读工具，基于 **Electron + TypeScript + electron-vite** 构建。
-> 核心设计目标：**可用性、性能、可扩展性、安全性**，长文档低负载，严防内存泄漏。
+> 一款基于 **Python + PySide6** 的 Markdown 编辑 / 阅读工具。
+> 默认显示排版结果、点击即可编辑，也可一键切换到整篇源码模式。
+> 设计目标：**流畅、轻量、可扩展、安全**，长文档低负载。
+
+---
 
 ## 📖 项目介绍
 
-MdNote 把「写作」与「排版」合二为一：未聚焦的内容块直接显示排版结果，
-点击任意段落即临时展开该块的 Markdown 源码，离开自动渲染——无需在「编辑区 / 预览区」之间来回切换。
+MdNote 把「写作」与「排版」合二为一，提供两种由你掌控的全局模式：
 
-同时支持一键切换全文档源码模式、自动目录、可视化表格、190+ 语言代码高亮、
-LaTeX 数学公式、Mermaid 图表、YAML Front Matter、专注 / 打字机模式，
-以及 PDF / HTML / 图片导出与 Pandoc 扩展格式。
+- **渲染后模式（默认）**：整篇文档直接显示排版结果。点击任意位置，
+  光标精确就位即可输入；点到别处或按 `Esc`，该块立即恢复排版。
+- **源码模式**：按 `Ctrl+/` 整体切换到整篇 Markdown 原文，
+  带行号区与语法高亮；再按一次切回排版。
 
-### 设计亮点
+两种模式共用同一份文档内容，切换不丢内容，也不存在系统自动来回跳转的混乱。
+应用以原生 Python / Qt 构建，排版由独立的 WebEngine 进程承担。
 
-- ⚡ **视口虚拟化**：无论文档多长，DOM 中只保留屏幕附近的块。实测 **60,000 块**文档仅挂载 25~35 行
-- 🧩 **块级文档模型**：纯函数解析，偏移可逆，规范文本是唯一事实源
-- 🛡️ **纵深安全防护**：沙箱进程 + contextIsolation + DOMPurify 净化 + 自定义协议白名单 + 严格 CSP
-- ♻️ **无泄漏生命周期**：统一 `Lifetime` 管理监听 / Observer / 定时器 / 订阅，卸载即释放
-- 🔌 **插件可扩展**：markdown-it 插件机制，外部插件运行在沙箱中，设置中显式启停
+## ✨ 功能一览
 
-## ✨ 功能特性
+### 编辑体验
 
-### 编辑与渲染
+- 双模式：渲染后所见即所得 / 整篇源码，`Ctrl+/` 切换
+- 点击任意位置光标精确就位；中文输入法组字期间不被打断
+- 智能回车（见下）、行首退格合并、`Tab` 缩进
+- 符号自动配对，可选智能弯引号
 
-- **实时（所见即所得）模式**：点击块展开源码、离开自动渲染
-- **源码模式**：`Ctrl+/` 切换，CodeMirror 6 全文档编辑
-- 完整基础语法：标题、加粗 / 斜体 / 删除线、行内代码、引用、有序 / 无序 / 任务列表、链接、图片、分隔线、内嵌 HTML
-- 空格触发快捷输入：`# `、`- `、`> `、`1. `、`- [ ] `、```` ``` ````、`$$`
-- 符号自动配对、智能标点（弯引号，可开关）
+### 智能回车
 
-### 高级功能
+> 无论在块的什么位置按 Enter，都**在光标处截断、后半段移到下一行**：
+>
+> - **列表**：自动续一行同级标记，有序列表自动递增；在空标记上再回车则取消格式
+> - **引用**：自动续 `>` 前缀，空引用再回车退出
+> - **标题**：标题中间回车，后半段成为普通段落
+> - 其他位置：在光标处换行
 
-- **`[toc]` 自动目录**：随标题修改更新，点击跳转
-- **代码块**：highlight.js 提供 190+ 语言高亮、行号开关、一键复制
+### Markdown 语法
+
+- 标题、加粗 / 斜体 / 删除线、行内代码、引用、分隔线、内嵌 HTML
+- 有序 / 无序 / 任务列表、链接、图片
+- 空格快捷输入：`# `、`- `、`> `、`1. `、`- [ ] `、` ``` `、`~~`
+- **代码块**：Pygments 语法高亮、行号开关、一键复制
 - **数学公式**：KaTeX 渲染行内 `$...$` 与块级 `$$...$$`
-- **Mermaid 图表**：流程图 / 时序图 / 甘特图 / 饼图等
-- **可视化表格**：单元格选中 / 编辑、拖拽列宽、右键增删行列与对齐、`Tab` 跨格导航
+- **Mermaid 图表**：流程图、时序图、甘特图、饼图等
+- **可视化表格**：单元格直接编辑、`Tab` 跨格导航、失焦自动回写
+- **`[toc]` 自动目录**：随文档更新，点击跳转
 - **YAML Front Matter**：头部元信息解析展示
-- **会话恢复**：重启自动打开上次文件 / 文件夹，恢复窗口与侧边栏状态
-- **自动保存**：停顿 1 秒静默落盘（可开关）
+
+> KaTeX、Mermaid 等资源**已离线内置**，无需联网即可使用。
 
 ### 沉浸式写作
 
-- 专注模式（`F8`）：仅当前块高亮，其余变暗
-- 打字机模式（`F9`）：光标保持屏幕中央
-- 大纲侧边栏：章节跳转，当前章节实时高亮
-- 状态栏：字数、字符数、行数、预估阅读时长、保存状态
+- **专注模式**（`F8`）：仅当前块高亮，其余变暗
+- **打字机模式**（`F9`）：光标保持在屏幕中部
+- 侧边栏：文件树（双击打开）+ 大纲（点击跳转、当前章节高亮）
+- 状态栏：保存状态、字数 / 字符 / 行数、阅读时长、当前模式
 
-### 导入导出
+### 文件、图片与导出
 
-- 导出 **HTML / PDF / PNG / JPEG**（PDF 支持页边距、横向、页码、目录选项）
-- 安装 **Pandoc** 后支持 **Word (.docx) / ePub / LaTeX / ODT**
-- 图片拖拽 / 粘贴自动落盘（可配置图片目录与相对 / 绝对路径）
+- 新建 / 打开 / 保存 / 另存为 / 打开文件夹
+- 自动保存（可开关）、会话与最近文件恢复
+- 图片**拖拽 / 粘贴自动落盘**（可配置图片目录与相对 / 绝对路径）
+- 外部程序修改当前文件时提示重新载入
+- 导出 **HTML / PDF / PNG / JPEG**
+- 安装 **Pandoc** 后可导出 **Word (.docx) / ePub / LaTeX / ODT**
 
-## 🚀 安装与运行
+## 🚀 快速开始
 
 ### 环境要求
 
-| 依赖 | 版本 | 说明 |
-| --- | --- | --- |
-| Node.js | **≥ 18**（推荐 20 / 22 LTS） | 含 npm |
-| 操作系统 | Windows 10+ / macOS 11+ / Linux | 主要在 Windows 上测试 |
-| Pandoc | 可选（≥ 2.19） | 仅导出 docx / ePub / LaTeX / odt 时需要 |
+- **Python ≥ 3.10**（推荐 3.11 / 3.12），含 pip
+- Windows 10+（也可在 macOS / Linux 运行；打包主要在 Windows 验证）
 
-检查环境：
+### 从源码运行
 
 ```bash
-node -v   # 期望 v18 以上
-npm -v
-```
-
-### 快速开始
-
-```bash
-# 1. 获取代码后进入项目目录
+# 获取代码并进入目录
 cd md_tool
 
-# 2. 安装依赖（首次运行需要）
-npm install
+# （可选）创建虚拟环境
+python -m venv .venv
+.venv\Scripts\Activate.ps1        # Windows
+# source .venv/bin/activate        # macOS / Linux
 
-# 3. 启动开发模式（热更新）
-npm run dev
+# 安装依赖
+pip install -r requirements.txt
+
+# 启动
+python -m mdnote
 ```
 
-启动后窗口自动打开并载入欢迎文档（或恢复上次会话）。
+启动后窗口自动打开；若上次有打开的文件会自动恢复，否则显示欢迎文档。
 
-### 生产构建与运行
+### 运行测试
 
 ```bash
-npm run build      # 构建主进程 / preload / 渲染进程到 out/
-npm start          # 以生产方式运行构建产物
+python tests/test_editor.py       # 编辑器变换回归测试
 ```
 
-### 打包桌面安装程序
+## 📦 构建与安装
+
+### 打包应用目录
 
 ```bash
-npm run dist       # electron-builder 打包，产物输出到 release/
+pip install pyinstaller
+pyinstaller mdnote.spec --noconfirm
 ```
 
-Windows 下生成 NSIS 安装程序；如需其他平台格式，修改 `package.json` 中的 `build` 配置。
+产物位于 `dist/MdNote/`，运行其中的 `MdNote.exe`。
 
-### 可选：安装 Pandoc
+### 生成安装程序
 
-- Windows：`winget install --id JohnMacFarlane.Pandoc`，或访问 <https://pandoc.org/installing.html>
-- 安装后重启 MdNote，导出菜单中的 docx / ePub / LaTeX / odt 自动可用
+使用 NSIS 编译安装脚本：
+
+```bash
+makensis installer/setup.nsi
+```
+
+将生成单个安装程序，**安装时可自定义安装路径**，并创建开始菜单快捷方式、
+注册卸载程序；卸载时清理安装内容。
+
+> 安装包体积主要来自 Qt WebEngine（Chromium 内核）运行时，
+> 这是高质量 HTML/CSS 排版所必需的部分；应用自身代码占比很小。
+
+### 可选：Pandoc
+
+- Windows：`winget install --id JohnMacFarlane.Pandoc`
+- 或访问 <https://pandoc.org/installing.html>
+- 安装后重启应用，导出菜单中的 docx / epub / LaTeX / ODT 即可用
 
 ## ⌨️ 快捷键
 
@@ -112,54 +136,76 @@ Windows 下生成 NSIS 安装程序；如需其他平台格式，修改 `package
 | --- | --- |
 | 新建 / 打开 / 保存 | `Ctrl+N` / `Ctrl+O` / `Ctrl+S` |
 | 打开文件夹 / 另存为 | `Ctrl+Shift+O` / `Ctrl+Shift+S` |
-| 加粗 / 斜体 | `Ctrl+B` / `Ctrl+I` |
-| 删除线 / 行内代码 | `Ctrl+Shift+X` / `Ctrl+Shift+\`` |
-| 代码块 / 插入图片 | `Ctrl+Shift+K` / `Ctrl+Shift+I` |
-| 链接 | `Ctrl+K` |
-| 查找 | `Ctrl+F` |
-| 切换实时 / 源码视图 | `Ctrl+/` |
+| 撤销 / 重做 | `Ctrl+Z` / `Ctrl+Y` |
+| 切换源码 / 渲染后模式 | `Ctrl+/` |
 | 侧边栏 | `Ctrl+J` |
 | 专注模式 / 打字机模式 | `F8` / `F9` |
-| 字号缩放 / 恢复 | `Ctrl+=` / `Ctrl+-` / `Ctrl+0` |
+| 查找 | `Ctrl+F` |
 | 设置 | `Ctrl+,` |
+| 退出 | `Ctrl+Q` |
 
 ## 🧱 技术栈
 
-| 层 | 技术选型 |
+| 层 | 技术 |
 | --- | --- |
-| 应用框架 | Electron 33 |
-| 构建工具 | electron-vite 2 + Vite 5 |
-| 语言 | TypeScript 5（strict 模式） |
-| Markdown 解析 | markdown-it 14 |
-| 内容净化 | DOMPurify 3 |
-| 代码高亮 | highlight.js 11（动态加载，190+ 语言） |
-| 数学公式 | KaTeX |
-| 图表 | Mermaid 11（按图表类型动态分包） |
-| 源码编辑器 | CodeMirror 6 |
-| 元信息 | yaml |
-| 打包分发 | electron-builder |
+| GUI 框架 | PySide6（Qt 6） |
+| Markdown 解析 | Python-Markdown |
+| 内容净化 | nh3（ammonia） |
+| 代码高亮 | Pygments |
+| 数学 / 图表 | KaTeX、Mermaid（经 Qt WebEngine，离线内置） |
+| 打包 | PyInstaller + NSIS |
 
-## 📚 项目文档
+## 📁 目录结构
 
-完整文档位于 [`docs/`](docs/) 目录（可直接用 MdNote 打开查看，支持 Mermaid 渲染）：
+```
+mdnote/
+  app.py                QApplication / 单实例
+  config.py             用户数据与资源路径
+  core/                 设置、字数统计
+  editor/               块模型、编辑变换、源码编辑器、WebEngine 排版及 web 资源
+  services/             Markdown 引擎、图片服务、导出
+  ui/                   主窗口、侧边栏、状态栏、查找栏、对话框
+launch.py               打包入口
+tests/test_editor.py    编辑器变换回归测试
+installer/setup.nsi     NSIS 安装程序脚本
+docs/                   完整技术文档
+```
+
+## 📚 技术文档
 
 | 文档 | 内容 |
 | --- | --- |
-| [架构设计](docs/architecture.md) | 进程模型、分层架构、模块职责、IPC 通道、关键流程 |
-| [数据模型](docs/data-model.md) | 块模型设计、块类型、偏移与间隙不变量、编辑变换 |
-| [性能设计](docs/performance.md) | 虚拟化机制、长文档负载优化、缓存策略、基准数据 |
-| [安全模型](docs/security.md) | 威胁模型、沙箱隔离、净化管线、CSP 与安全清单 |
-| [插件开发](docs/plugin-development.md) | 扩展点、插件结构、API、完整示例 |
-| [开发指南](docs/development.md) | 环境搭建、目录结构、调试、测试、编码规范、发版 |
+| [架构设计](docs/architecture.md) | 进程 / 线程模型、分层、模块职责、桥接契约、关键流程 |
+| [数据模型](docs/data-model.md) | 块模型、块类型、偏移与间隙不变量、编辑变换 |
+| [性能设计](docs/performance.md) | 渲染、防抖节流、缓存、长文档优化、实测数据 |
+| [安全模型](docs/security.md) | 威胁模型、进程隔离、净化管线、导航控制 |
+| [扩展开发](docs/plugin-development.md) | Python-Markdown 扩展机制与完整示例 |
+| [开发指南](docs/development.md) | 环境、调试、测试、规范、构建与发版 |
 
-## 🗺️ Roadmap
+## ❓ 常见问题
 
-- [ ] 多标签页 / 多窗口文档管理
-- [ ] 全局搜索（文件夹内全文检索）
-- [ ] 更多内置主题与主题市场
-- [ ] 自动更新（electron-updater）
-- [ ] 插件扩展点增强（命令、快捷键、自定义块、状态栏）
-- [ ] macOS / Linux 打包验证
+**Q：点击文字能直接编辑吗？**
+可以。渲染后模式下点击任意位置即进入该块编辑，光标落在点击处；点别处或按 Esc 恢复排版。
+
+**Q：需要联网吗？**
+不需要。KaTeX、Mermaid 等资源已离线内置，日常写作与排版完全离线可用。
+
+**Q：两种模式会丢内容吗？**
+不会。两种模式共用同一份文档，`Ctrl+/` 切换只是整体切换显示与编辑方式。
+
+**Q：图片如何保存？**
+拖拽或粘贴图片会自动写入文档所在目录下配置的图片文件夹（默认 `assets`），并插入引用；
+可在设置中改为绝对路径。
+
+**Q：为什么安装包较大？**
+排版依赖 Qt WebEngine（Chromium 内核）运行时，这是固定成本；应用自身代码很小。
+
+## 🗺️ 规划方向
+
+- 插件自动加载器（设置中勾选启停 Python-Markdown 扩展）
+- 超长文档的分块按需排版
+- 多标签 / 多窗口文档管理
+- 文件夹全文检索、更多内置主题、自动更新
 
 ## 📄 许可证
 
