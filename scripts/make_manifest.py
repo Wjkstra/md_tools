@@ -33,6 +33,10 @@ def main() -> None:
     parser.add_argument("--version", required=True)
     parser.add_argument("--url", required=True)
     parser.add_argument("--notes", default="")
+    parser.add_argument(
+        "--notes-file", default=None, type=Path,
+        help="从 UTF-8 文件读取更新说明（避免命令行中文编码问题）",
+    )
     parser.add_argument("--min-version", default=None)
     parser.add_argument("--out", required=True, type=Path)
     args = parser.parse_args()
@@ -40,9 +44,13 @@ def main() -> None:
     if not args.installer.exists():
         raise SystemExit(f"安装包不存在：{args.installer}")
 
+    notes = args.notes
+    if args.notes_file is not None:
+        notes = args.notes_file.read_text(encoding="utf-8").strip()
+
     manifest = {
         "version": args.version,
-        "notes": args.notes,
+        "notes": notes,
         "url": args.url,
         "sha256": sha256_of(args.installer),
     }

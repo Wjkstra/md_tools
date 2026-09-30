@@ -1,0 +1,6 @@
+{
+  "version": "0.2.0",
+  "notes": "本次更新内容：\n\n- 应用内自动更新：检查新版本、下载并校验后一键升级\n- 多标签：同时打开多个文件，标签切换 / 关闭\n- 文件夹全文检索：按文件名与正文搜索，点击结果定位到具体行\n- 七套内置主题：浅色、深色、护眼、羊皮纸、深夜、Monokai、Dracula\n- 超长文档按需排版，仅渲染视口附近内容",
+  "url": "https://github.com/Wjkstra/md_tools/releases/download/v0.2.0/MdNote-Setup-0.2.0.exe",
+  "sha256": "fa8b3893136acc5ac7e75edbb9981dd9dd9896899a488b4b7b8394b020429ce9"
+}

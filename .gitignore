@@ -15,6 +15,7 @@ dist/
 
 # 安装程序构建产物
 MdNote-Setup.exe
+MdNote-Setup-*.exe
 
 # 运行 / 测试日志
 *.log
