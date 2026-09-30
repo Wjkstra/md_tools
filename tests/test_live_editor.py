@@ -104,6 +104,42 @@ class LiveEditorTests(unittest.TestCase):
                 QCoreApplication.sendPostedEvents(None, QEvent.Type.DeferredDelete)
                 self.view, self.doc = original_view, original_doc
 
+    def test_long_document_windowing_only_mounts_near_viewport(self):
+        # 生成超过窗口化阈值的文档：800 个段落
+        parts = []
+        for i in range(800):
+            parts.append(f"第 {i} 段内容，包含一些文字用来占高度 aaaa aaaa aaaa")
+            parts.append("")
+        self.load("\n".join(parts))
+        self.wait(lambda: self.js("App.blocks.length") > 400)
+
+        result = self.js(r"""
+          (() => {
+            const total = document.querySelectorAll('.block').length;
+            const placeholders = document.querySelectorAll('.block-placeholder').length;
+            const [s, e] = App.mountedRange;
+            const mountedCount = e - s;
+            const mid = Math.floor((s + e) / 2);
+            const inside = document.querySelector(
+              `.block[data-index="${mid}"]`).innerHTML.length;
+            const outside = document.querySelector(
+              `.block[data-index="${total - 2}"]`).innerHTML.length;
+            return JSON.stringify({
+              windowed: App.windowed, total, placeholders,
+              mountedCount, start: s, end: e, inside, outside
+            });
+          })()
+        """)
+        import json as _json
+        r = _json.loads(result)
+
+        self.assertTrue(r["windowed"], "超长文档应启用窗口化")
+        self.assertLess(r["mountedCount"], r["total"], "只挂载文档的一小部分")
+        # 绝大多数块是占位块（未挂载）
+        self.assertGreater(r["placeholders"], r["total"] - r["mountedCount"] - 2)
+        self.assertGreater(r["inside"], 0, "视口内块有真实内容")
+        self.assertEqual(r["outside"], 0, "远离视口的块未挂载、内容为空")
+
     def test_table_keyboard_enter_exit_and_append_row(self):
         self.load("before\n\n| A | B |\n| --- | --- |\n| one | two |\n\nafter")
         self.js("App.startEdit(0,null,3)")

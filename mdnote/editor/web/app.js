@@ -13,10 +13,21 @@ const App = {
   requestSerial: 0,
   verticalX: null,
 
+  // 超长文档的按需排版（窗口化）
+  WINDOW_THRESHOLD: 400,   // 块数超过该值才启用窗口化
+  VIEWPORT_PAD: 1200,      // 视口上下额外排版的像素余量
+  measuredHeights: new Map(),  // 块索引 -> 实测内容高度
+  mountedRange: [0, 0],
+  _viewportQueued: false,
+
   init(bridge) {
     this.bridge = bridge;
     document.addEventListener("mousedown", (e) => this.onMouseDown(e), true);
     document.addEventListener("keydown", (e) => this.onKeyDown(e));
+    document.addEventListener(
+      "scroll", () => this.scheduleViewportUpdate(), true
+    );
+    window.addEventListener("resize", () => this.scheduleViewportUpdate());
     document.addEventListener("input", () => this.syncDraft());
     document.addEventListener("beforeinput", (e) => {
       if (!this.pendingTransform || !e.cancelable) return;
@@ -258,31 +269,168 @@ const App = {
 
   // ---------------- 渲染 ----------------
 
+  get windowed() {
+    return this.blocks.length > this.WINDOW_THRESHOLD;
+  },
+
+  blockHeight(index) {
+    const cached = this.measuredHeights.get(index);
+    if (cached) return cached;
+    const b = this.blocks[index];
+    if (!b) return 30;
+    const lines = Math.max(1, Math.ceil(b.raw.length / 56));
+    const perType = {
+      heading: 52, hr: 34, code: lines * 22 + 24,
+      math: lines * 26 + 20, list: lines * 30 + 16,
+      blockquote: lines * 30 + 16, table: lines * 34 + 18,
+      paragraph: lines * 27 + 12,
+    };
+    return perType[b.type] || 30;
+  },
+
+  computeMountedRange() {
+    const scrollY = window.scrollY || 0;
+    const viewH = window.innerHeight || 600;
+    const top = scrollY - this.VIEWPORT_PAD;
+    const bottom = scrollY + viewH + this.VIEWPORT_PAD;
+    let acc = 0;
+    let start = 0;
+    let startSet = false;
+    let end = this.blocks.length;
+    for (let i = 0; i < this.blocks.length; i++) {
+      const h = this.blockHeight(i);
+      if (!startSet && acc + h >= top) {
+        start = i;
+        startSet = true;
+      }
+      if (startSet && acc >= bottom) {
+        end = i;
+        break;
+      }
+      acc += h;
+    }
+    return [start, end];
+  },
+
+  isMounted(index) {
+    const [s, e] = this.mountedRange;
+    return index >= s && index < e;
+  },
+
+  scheduleViewportUpdate() {
+    if (this._viewportQueued || !this.windowed) return;
+    this._viewportQueued = true;
+    requestAnimationFrame(() => {
+      this._viewportQueued = false;
+      this.updateViewport();
+    });
+  },
+
+  updateViewport() {
+    const next = this.computeMountedRange();
+    const [prevS, prevE] = this.mountedRange;
+    this.mountedRange = next;
+    const [s, e] = next;
+    for (let i = s; i < e; i++) {
+      if (i >= prevS && i < prevE) continue;
+      this.mountBlock(i);
+    }
+    for (let i = prevS; i < prevE; i++) {
+      if (i >= s && i < e) continue;
+      if (i === this.editingIndex) continue;
+      this.unmountBlock(i);
+    }
+  },
+
+  mountBlock(index) {
+    const b = this.blocks[index];
+    const el = document.querySelector(`.block[data-index="${index}"]`);
+    if (!el || !b) return;
+    const before = el.getBoundingClientRect();
+    el.classList.remove("block-placeholder");
+    el.style.minHeight = "";
+    el.innerHTML = b.html;
+    const measured = el.getBoundingClientRect().height;
+    if (measured > 0) this.measuredHeights.set(index, measured);
+    this.postProcessBlock(el);
+    const after = el.getBoundingClientRect();
+    const delta = after.top - before.top;
+    if (delta && index <= this.mountedRange[0]) window.scrollBy(0, delta);
+  },
+
+  unmountBlock(index) {
+    const el = document.querySelector(`.block[data-index="${index}"]`);
+    if (!el) return;
+    const h = this.blockHeight(index);
+    el.classList.add("block-placeholder");
+    el.style.minHeight = `${h}px`;
+    el.innerHTML = "";
+  },
+
+  measureMountedAndRefine() {
+    const [s, e] = this.mountedRange;
+    for (let i = s; i < e; i++) {
+      const el = document.querySelector(`.block[data-index="${i}"]`);
+      if (el && !el.classList.contains("block-placeholder")) {
+        const h = el.getBoundingClientRect().height;
+        if (h > 0) this.measuredHeights.set(i, h);
+      }
+    }
+  },
+
+  postProcessBlock(el) {
+    if (window.katex) this.renderMathIn(el);
+    const mermaidCode = el.querySelector("code.language-mermaid");
+    if (mermaidCode) {
+      const host = document.createElement("div");
+      host.className = "mermaid";
+      host.textContent = mermaidCode.textContent;
+      (mermaidCode.closest(".codehilite") || mermaidCode).replaceWith(host);
+      if (window.mermaid) {
+        try {
+          window.mermaid.initialize({ startOnLoad: false, securityLevel: "strict", theme: "neutral" });
+          window.mermaid.run({ nodes: [host] });
+        } catch (e) { /* ignore */ }
+      }
+    }
+  },
+
   renderAll(blocks) {
     const previous = this.blocks;
     this.blocks = blocks;
     this.editingIndex = -1;
     const doc = document.getElementById("doc");
     const oldNodes = [...doc.children];
+    const windowed = this.windowed;
+    if (windowed) this.mountedRange = this.computeMountedRange();
+
     for (const b of blocks) {
       let el = oldNodes[b.index];
       const old = previous[b.index];
+      const shouldMount = !windowed || this.isMounted(b.index);
       // Keep unchanged rendered nodes, including expensive diagrams and tables.
       if (el && !el.classList.contains("is-editing") && old &&
-          old.raw === b.raw && old.html === b.html && old.type === b.type) continue;
+          old.raw === b.raw && old.html === b.html && old.type === b.type &&
+          el.classList.contains("block-placeholder") === !shouldMount) continue;
       el = document.createElement("div");
       el.className = `block block-${b.type}`;
       el.dataset.index = String(b.index);
       el.tabIndex = -1;
       el.setAttribute("aria-label", `第 ${b.index + 1} 段，${b.type}`);
       if (b.trailing) el.classList.add("block-trailing");
-      el.innerHTML = b.html;
+      if (shouldMount) {
+        el.innerHTML = b.html;
+      } else {
+        el.classList.add("block-placeholder");
+        el.style.minHeight = `${this.blockHeight(b.index)}px`;
+      }
       if (oldNodes[b.index]) oldNodes[b.index].replaceWith(el);
       else doc.appendChild(el);
     }
     oldNodes.slice(blocks.length).forEach((el) => el.remove());
     this.activeIndex = Math.min(this.activeIndex, blocks.length - 1);
     this.postProcess();
+    if (windowed) this.measureMountedAndRefine();
   },
 
   postProcess() {

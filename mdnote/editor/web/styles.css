@@ -50,6 +50,13 @@ html, body {
 
 .block-trailing { min-height: 1.7em; }
 
+/* 窗口化时未挂载的占位块 */
+.block-placeholder {
+  cursor: text;
+  border-radius: 6px;
+}
+.block-placeholder:hover { background: var(--code-bg); }
+
 /* 专注模式：仅当前活动块高亮，其余变暗 */
 body.focus-mode .block:not(.block-active) {
   opacity: 0.16;
