@@ -70,25 +70,19 @@ print(_safe_html("<p onclick='x'>a</p>"))
 
 ## 5. 测试
 
-### 5.1 单元回归
+详见独立的 [测试文档](testing.md)。两层套件：
 
-`tests/test_editor.py` 覆盖：
+| 套件 | 覆盖 | 命令 |
+| --- | --- | --- |
+| `tests/test_editor.py` | 纯函数：各块类型回车、合并、缩进、空格触发、包裹、序列化往返（33 项） | `python tests/test_editor.py` |
+| `tests/test_live_editor.py` | 真实 WebEngine 页面端到端交互：输入、块切换、表格、命令面板、焦点导航、保存等（40 项） | `python -m unittest tests.test_live_editor` |
 
-- 各块类型的回车（段落中间 / 末尾、列表、引用、标题、代码、数学）
-- 行首退格合并、Tab 缩进、空格触发、选区包裹、插入
-- 块模型的解析 → 序列化往返一致
+提交前应确保两层均通过。
 
-运行：
+### 5.1 添加测试
 
-```bash
-python tests/test_editor.py
-# 期望：xx 通过，0 失败
-```
-
-### 5.2 添加测试
-
-- 新变换：在 `tests/test_editor.py` 中按现有 `check(...)` 形式添加纯函数断言
-- 新交互：先在 `transforms.py` 中以纯函数实现，再加测试，最后接入页面脚本
+- 新变换：在 `tests/test_editor.py` 按现有 `check(...)` 形式添加纯函数断言
+- 新交互：先在 `transforms.py` 以纯函数实现，再加测试，最后接入页面脚本
 
 > 编辑变换优先写成**纯函数**（输入文本与偏移，输出文本与光标），
 > 便于测试与复用，不直接依赖页面或控件。

@@ -1,6 +1,6 @@
 """源码模式编辑器：QPlainTextEdit + 行号区 + Markdown 高亮。"""
 
-from PySide6.QtCore import QRect, Qt, Signal
+from PySide6.QtCore import QRect, Qt, Signal, QSize
 from PySide6.QtGui import QColor, QFont, QPainter, QTextCursor
 from PySide6.QtWidgets import QPlainTextEdit, QWidget
 
@@ -15,7 +15,7 @@ class LineNumberArea(QWidget):
         self._editor = editor
 
     def sizeHint(self):
-        return self._editor.line_number_area_width()
+        return QSize(self._editor.line_number_area_width(), 0)
 
     def paintEvent(self, event) -> None:
         self._editor.paint_line_numbers(event)
@@ -112,18 +112,36 @@ class SourceEditor(QPlainTextEdit):
     def _indent_selection(self, cursor: QTextCursor, indent: bool) -> None:
         start = cursor.selectionStart()
         end = cursor.selectionEnd()
+        selected = cursor.hasSelection()
+        first = self.document().findBlock(start)
+        last = self.document().findBlock(max(start, end - 1) if selected else end)
+        changes = []
+        block = first
+        while block.isValid() and block.position() <= last.position():
+            text = block.text()
+            remove = 1 if text.startswith("\t") else min(2, len(text) - len(text.lstrip(" ")))
+            changes.append((block.position(), remove))
+            block = block.next()
         cursor.beginEditBlock()
-        cursor.setPosition(start)
-        cursor.movePosition(QTextCursor.StartOfBlock)
-        while cursor.position() <= end and not cursor.atEnd():
+        total = 0
+        start_delta = 0
+        for position, remove in reversed(changes):
+            cursor.setPosition(position)
             if indent:
                 cursor.insertText("  ")
-                end += 2
-            elif cursor.text() == " ":
-                cursor.deleteChar()
-                end -= 1
-            cursor.movePosition(QTextCursor.NextBlock)
+                delta = 2
+            else:
+                cursor.setPosition(position + remove, QTextCursor.KeepAnchor)
+                cursor.removeSelectedText()
+                delta = -remove
+            total += delta
+            if position <= start:
+                start_delta += delta if delta >= 0 else -min(remove, start - position)
         cursor.endEditBlock()
+        cursor.setPosition(max(0, start + start_delta))
+        if selected:
+            cursor.setPosition(max(0, end + total), QTextCursor.KeepAnchor)
+        self.setTextCursor(cursor)
 
     # ---------------- 文本 API ----------------
 

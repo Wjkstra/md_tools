@@ -271,7 +271,7 @@ def build_model(text: str) -> DocModel:
         return DocModel(
             text=text,
             blocks=[
-                Block(id=block_hash("paragraph", ""), type="paragraph", start=0, end=0, raw="", trailing=True)
+                Block(id=block_hash("paragraph", ""), type="paragraph", start=len(text), end=len(text), raw="", trailing=True)
             ],
             gaps=[0],
         )

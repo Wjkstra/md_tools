@@ -2,6 +2,7 @@
 
 import json
 import re
+from functools import lru_cache
 from pathlib import Path
 from urllib.parse import unquote
 from html import escape as html_escape
@@ -76,8 +77,12 @@ def _safe_html(markup: str, base: str | None = None) -> str:
     )
 
 
+@lru_cache(maxsize=512)
+def _render_block(raw: str) -> str:
+    return markdown_engine().render(raw)
+
+
 def _blocks_payload(model, base: str | None = None) -> list[dict]:
-    engine = markdown_engine()
     headings = extract_headings(model)
     heading_by_block = {h.block_index: h for h in headings}
     out = []
@@ -97,7 +102,7 @@ def _blocks_payload(model, base: str | None = None) -> list[dict]:
             )
         elif b.type == "heading":
             info = heading_by_block.get(i)
-            rendered = engine.render(b.raw)
+            rendered = _render_block(b.raw)
             if info:
                 rendered = re.sub(
                     r'(<h[1-6]\s+)id="[^"]*"',
@@ -105,7 +110,7 @@ def _blocks_payload(model, base: str | None = None) -> list[dict]:
                     rendered,
                 )
         else:
-            rendered = engine.render(b.raw)
+            rendered = _render_block(b.raw)
         rendered = _safe_html(rendered, base)
         out.append(
             {"index": i, "type": b.type, "raw": b.raw, "html": rendered, "trailing": False}
@@ -138,12 +143,20 @@ class LiveDocument:
         if self._draft is not None:
             index, raw = self._draft
             b = self.model.blocks[index]
-            return self.text[:b.start] + raw + self.text[b.end:]
+            return self.text[:b.start] + self._insertion(index, raw) + self.text[b.end:]
         return self.text
+
+    def _insertion(self, index: int, raw: str) -> str:
+        b = self.model.blocks[index]
+        if b.trailing and raw and self.text and not self.text.endswith("\n"):
+            return "\n\n" + raw
+        return raw
 
     def update_draft(self, index: int, raw: str) -> None:
         """同步输入供保存使用，编辑期间保持块索引稳定。"""
         if self._draft == (index, raw):
+            return
+        if self._draft is None and raw == self.model.blocks[index].raw:
             return
         if raw != self.model.blocks[index].raw:
             self._redo.clear()
@@ -199,14 +212,11 @@ class LiveDocument:
     def commit(self, index: int, raw: str) -> list[dict]:
         self._draft = None
         b = self.model.blocks[index]
-        if b.trailing and raw:
-            # 在文末挂尾块输入：文本直接追加
+        if raw != b.raw:
+            insert = self._insertion(index, raw)
             self._snapshot()
-            self._splice(b.start, b.start, raw, record=False)
-        elif raw != b.raw:
-            self._snapshot()
-            self._splice(b.start, b.end, raw, record=False)
-        self.on_text_changed()
+            self._splice(b.start, b.end, insert, record=False)
+            self.on_text_changed()
         return self.payload()
 
     def transform(self, index: int, command: str, offset: int, current_raw: str):
@@ -239,10 +249,12 @@ class LiveDocument:
             return None
 
         self._snapshot()
-        self._splice(b.start, b.end, r.text, record=False)
+        insert = self._insertion(index, r.text)
+        prefix_len = len(insert) - len(r.text)
+        self._splice(b.start, b.end, insert, record=False)
         self.on_text_changed()
         # 块索引可能因解析变化而移动：用 caret 全局偏移重新定位块
-        caret_global = b.start + r.caret
+        caret_global = b.start + prefix_len + r.caret
         new_index = find_block_index(self.model, caret_global)
         if (self.model.blocks[new_index].trailing and new_index > 0
                 and self.model.blocks[new_index - 1].end == caret_global
@@ -312,7 +324,7 @@ class Bridge(QObject):
         block = self._doc.model.blocks[index]
         target = self._doc.model.blocks[target_index].start
         if target_index > index:
-            target += len(raw) - len(block.raw)
+            target += len(self._doc._insertion(index, raw)) - len(block.raw)
         blocks = self._doc.commit(index, raw)
         return json.dumps({"blocks": blocks,
                            "index": find_block_index(self._doc.model, target)}, ensure_ascii=False)
@@ -417,5 +429,11 @@ class WebPreview(QWebEngineView):
         t = theme.lower()
         return any(k in t for k in ("dark", "night", "monokai", "dracula"))
 
-    def reload_blocks(self) -> None:
-        self.page().runJavaScript("App && App.bridge && App.bridge.loadBlocks((p)=>App.renderAll(JSON.parse(p)));")
+    def reload_blocks(self, focus: bool = False) -> None:
+        self.page().runJavaScript(
+            "typeof App !== 'undefined' && App.bridge && App.loadDocument("
+            + ("true" if focus else "false") + ");")
+
+    def focus_editor(self) -> None:
+        self.setFocus()
+        self.page().runJavaScript("typeof App !== 'undefined' && App.bridge && App.focusEditor();")

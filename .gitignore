@@ -16,6 +16,9 @@ dist/
 # 安装程序构建产物
 MdNote-Setup.exe
 
+# 运行 / 测试日志
+*.log
+
 # 编辑器 / 系统
 .vscode/
 .idea/

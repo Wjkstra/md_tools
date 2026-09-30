@@ -121,14 +121,17 @@ mdnote/
 │   ├── image_service.py   # 图片拷贝 / base64 落盘，返回嵌入引用
 │   └── exporter.py        # HTML / PDF / 图片导出、Pandoc 调用
 └── ui/
-    ├── main_window.py     # 主窗口：菜单、动作、文件生命周期
-    ├── sidebar.py         # 文件树 + 大纲
+    ├── main_window.py     # 主窗口：菜单、动作、文件生命周期、焦点导航
+    ├── sidebar.py         # 文件树 + 大纲（Esc 返回编辑器）
     ├── statusbar.py       # 状态栏
     ├── findbar.py         # 查找 / 替换
-    └── dialogs.py         # 原生对话框、设置面板
+    └── dialogs.py         # 原生对话框、命令面板、设置面板
 
 launch.py                  # 打包入口（绝对导入）
-tests/test_editor.py       # 编辑器变换回归测试
+scripts/make_icon.py       # 应用图标生成
+tests/
+├── test_editor.py         # 编辑器变换纯函数回归
+└── test_live_editor.py    # WebEngine 集成测试
 installer/setup.nsi        # NSIS 安装程序脚本（支持自定义安装路径）
 ```
 
@@ -145,13 +148,19 @@ QWebChannel 暴露的一个 `Bridge` 对象（`mdnote/editor/webview.py`）进�
 | `loadBlocks` | — | 块列表 JSON | 读取全部块（含类型、raw、渲染 HTML） |
 | `startEdit` | 块索引 | 字符串 | 获取该块原始 Markdown |
 | `commit` | 块索引、raw | 块列表 JSON | 提交块编辑并返回最新块列表 |
+| `commitAndLocate` | 块索引、raw、目标块索引 | 块列表 + 目标索引 | 提交当前块并定位到另一块（跨块跳转） |
+| `updateDraft` | 块索引、raw | — | 编辑期间持续同步输入，保持块索引稳定 |
 | `transform` | 块索引、命令、偏移、当前 raw | 变换结果 JSON | 执行回车 / 合并 / 缩进 / 空格触发 |
 | `toggleTask` | 块索引 | 块列表 JSON | 切换任务列表复选状态 |
 | `addImage` | 参数 JSON | 字符串 | 图片 base64 落盘，返回 `![]()` 引用 |
 | `updateTable` | 块索引、表格 Markdown | 块列表 JSON | 表格单元格编辑回写 |
+| `openExternal` | URL | — | 以白名单协议（http/https/mailto）交系统程序打开 |
 | `undo` / `redo` | — | 块列表 JSON | 撤销 / 重做 |
 
 `transform` 的命令取值：`enter`、`backspace`、`tab`、`shiftTab`、`spaceProbe`。
+
+> **偏移编码**：页面 DOM 选区以 UTF-16 码元计数，而 Python 字符串以码点计数。
+> `Bridge.transform` 在两端之间做换算（UTF-16 ↔ 码点），保证含中文 / Emoji 时光标偏移仍准确。
 
 ### Python → 页面
 
@@ -226,6 +235,30 @@ sequenceDiagram
    - 保存：写入文件（若需另存为被取消，则不退出）后关闭
    - 不保存：直接关闭
    - 取消：窗口保留
+
+### 6.5 命令面板
+
+按 `Ctrl+Shift+P` 打开 `CommandPalette`（`ui/dialogs.py`）：
+
+- 命令来源是菜单栏的全部动作（`menu_commands()` 递归遍历菜单树）
+- 搜索框按空格分词、大小写不敏感地过滤；列表项同时显示快捷键
+- `↑↓` 选择、`Enter` 执行、`Esc` 取消；已禁用的动作不会出现
+
+这样即使不记得菜单层级或快捷键，所有功能仍然可搜索到达。
+
+### 6.6 焦点导航（全键盘操作）
+
+界面划分为三个可聚焦区域：**编辑器、侧边栏、查找栏**：
+
+| 操作 | 行为 |
+| --- | --- |
+| `F6` / `Shift+F6` | 在编辑器 → 侧边栏 → 查找栏之间正向 / 逆向循环焦点 |
+| `Ctrl+Shift+E` / `Ctrl+Shift+L` | 直接展开侧边栏并聚焦文件树 / 大纲 |
+| `Ctrl+Alt+E` | 返回编辑器焦点 |
+| 侧边栏内 `Esc` | 返回编辑器（`return_editor_requested`） |
+| 文件树 `Enter` / 大纲 `Enter` | 打开文件 / 跳转章节 |
+
+侧边栏在切换前后保持当前标签页与选中行；关闭侧边栏时焦点自动回到编辑器。
 
 ## 7. 状态归属
 

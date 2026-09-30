@@ -1,11 +1,13 @@
 """主窗口：菜单、双模式编辑器、文件生命周期、侧边栏 / 查找 / 状态栏联动。"""
 
 from pathlib import Path
+import json
 
 from PySide6.QtCore import QFileSystemWatcher, QTimer, Qt
 from PySide6.QtGui import QAction, QIcon, QKeySequence, QTextCursor, QTextDocument
 from PySide6.QtWidgets import (
     QFileDialog,
+    QApplication,
     QMainWindow,
     QMessageBox,
     QSplitter,
@@ -21,7 +23,7 @@ from ..editor.block_model import build_model, extract_headings
 from ..editor.source_editor import SourceEditor
 from ..editor.webview import LiveDocument, WebPreview
 from ..services import exporter
-from .dialogs import SettingsDialog, alert, confirm, prompt
+from .dialogs import CommandPalette, SettingsDialog, alert, confirm, prompt
 from .findbar import FindBar
 from .sidebar import Sidebar
 from .statusbar import StatusBar
@@ -65,6 +67,7 @@ class MainWindow(QMainWindow):
         self.sidebar = Sidebar()
         self.sidebar.open_file_requested.connect(self.open_file)
         self.sidebar.jump_requested.connect(self.jump_heading)
+        self.sidebar.return_editor_requested.connect(self.focus_editor)
 
         splitter = QSplitter()
         splitter.addWidget(self.sidebar)
@@ -76,7 +79,7 @@ class MainWindow(QMainWindow):
         self.findbar = FindBar()
         self.findbar.find_next.connect(self.find_text)
         self.findbar.replace_one.connect(self.replace_text)
-        self.findbar.closed.connect(lambda: self._preview.setFocus())
+        self.findbar.closed.connect(self.focus_editor)
         self.statusbar = StatusBar()
 
         center = QWidget()
@@ -105,7 +108,7 @@ class MainWindow(QMainWindow):
             act.triggered.connect(slot)
             return act
 
-        m_file = mb.addMenu("文件")
+        m_file = mb.addMenu("文件(&F)")
         m_file.addAction(action("新建", self.new_file, "Ctrl+N"))
         m_file.addAction(action("打开…", self.open_dialog, "Ctrl+O"))
         m_file.addAction(action("打开文件夹…", self.open_folder_dialog, "Ctrl+Shift+O"))
@@ -123,24 +126,164 @@ class MainWindow(QMainWindow):
         m_file.addSeparator()
         m_file.addAction(action("退出", self.close, "Ctrl+Q"))
 
-        m_edit = mb.addMenu("编辑")
+        m_edit = mb.addMenu("编辑(&E)")
         m_edit.addAction(action("撤销", self._undo, "Ctrl+Z"))
         m_edit.addAction(action("重做", self._redo, "Ctrl+Y"))
         m_edit.addSeparator()
         m_edit.addAction(action("查找…", self.findbar.open, "Ctrl+F"))
+        m_edit.addAction(action("替换（源码模式）…", self.open_replace, "Ctrl+H"))
+        m_edit.addAction(action("全选全文（源码模式）", self.select_document, "Ctrl+Shift+A"))
+        m_edit.addAction(action("查找下一个", lambda: self.findbar.next_match(True), "F3"))
+        m_edit.addAction(action("查找上一个", lambda: self.findbar.next_match(False), "Shift+F3"))
+        m_edit.addSeparator()
+        m_edit.addAction(action("加粗", lambda: self.format_text("**"), "Ctrl+B"))
+        m_edit.addAction(action("斜体", lambda: self.format_text("*"), "Ctrl+I"))
+        m_edit.addAction(action("删除线", lambda: self.format_text("~~"), "Ctrl+Shift+X"))
+        m_edit.addAction(action("行内代码", lambda: self.format_text("`"), "Ctrl+Shift+`"))
+        m_edit.addAction(action("链接", lambda: self.format_text("[", "](https://)"), "Ctrl+K"))
+        m_edit.addAction(action("插入代码块", lambda: self.insert_text("\n\n```\n\n```\n\n"), "Ctrl+Shift+K"))
+        m_edit.addAction(action("插入表格", lambda: self.insert_text("\n\n| 列一 | 列二 |\n| --- | --- |\n|  |  |\n\n")))
+        m_edit.addAction(action("切换任务完成状态 / 插入任务项", self.toggle_task, "Ctrl+Shift+Enter"))
+        m_edit.addAction(action("插入图片…", self.insert_image, "Ctrl+Shift+I"))
+        m_edit.addAction(action("插入分隔线", lambda: self.insert_text("\n\n---\n\n")))
+        m_edit.addAction(action("编辑当前块源码", lambda: self.editor_command("switchTo", "__active__"), "F2"))
 
-        m_view = mb.addMenu("视图")
+        m_table = m_edit.addMenu("表格")
+        for title, command in (("在下方插入行", "row"), ("在右侧插入列", "column"),
+                               ("删除当前行", "deleteRow"), ("删除当前列", "deleteColumn"),
+                               ("当前列左对齐", "left"), ("当前列居中", "center"), ("当前列右对齐", "right")):
+            m_table.addAction(action(title, lambda checked=False, c=command: self.editor_command("tableCommand", c)))
+
+        m_view = mb.addMenu("视图(&V)")
         m_view.addAction(action("切换源码 / 渲染后模式", self.toggle_mode, "Ctrl+/"))
         m_view.addAction(action("切换侧边栏", self.toggle_sidebar, "Ctrl+J"))
+        m_view.addAction(action("转到文件树", lambda: self.focus_sidebar("files"), "Ctrl+Shift+E"))
+        m_view.addAction(action("转到大纲", lambda: self.focus_sidebar("outline"), "Ctrl+Shift+L"))
+        m_view.addAction(action("返回编辑器", self.focus_editor, "Ctrl+Alt+E"))
+        m_view.addAction(action("下一个区域", lambda: self.cycle_focus(False), "F6"))
+        m_view.addAction(action("上一个区域", lambda: self.cycle_focus(True), "Shift+F6"))
         m_view.addSeparator()
         m_view.addAction(action("专注模式", self.toggle_focus, "F8"))
         m_view.addAction(action("打字机模式", self.toggle_typewriter, "F9"))
 
-        m_help = mb.addMenu("帮助")
+        m_help = mb.addMenu("帮助(&H)")
+        m_help.addAction(action("命令面板…", self.open_commands, "Ctrl+Shift+P"))
         m_help.addAction(action("设置", lambda: SettingsDialog(self).exec(), "Ctrl+,"))
         m_help.addAction(
             action("关于", lambda: alert(self, f"MdNote {_version()}"), )
         )
+
+    def menu_commands(self):
+        def walk(menu, prefix=""):
+            for act in menu.actions():
+                if act.isSeparator():
+                    continue
+                title = (prefix + " / " if prefix else "") + act.text().replace("&", "")
+                if act.menu():
+                    yield from walk(act.menu(), title)
+                else:
+                    yield title, act
+        return list(walk(self.menuBar()))
+
+    def open_commands(self) -> None:
+        dialog = CommandPalette(self, self.menu_commands())
+        dialog.exec()
+        if dialog.chosen:
+            dialog.chosen.trigger()
+        dialog.deleteLater()
+
+    def focus_editor(self) -> None:
+        if self._mode == "live":
+            self._preview.focus_editor()
+        else:
+            self._source.setFocus()
+
+    def focus_sidebar(self, name: str) -> None:
+        self._refresh_outline()
+        self.sidebar.show()
+        self.sidebar.show_tab(name)
+        self.sidebar.focus_current()
+
+    def cycle_focus(self, backwards: bool) -> None:
+        self.sidebar.show()
+        panes = [self._stack, self.sidebar]
+        if self.findbar.isVisible():
+            panes.append(self.findbar)
+        focused = QApplication.focusWidget()
+        current = next((i for i, pane in enumerate(panes)
+                        if pane is focused or pane.isAncestorOf(focused)), 0)
+        target = panes[(current + (-1 if backwards else 1)) % len(panes)]
+        if target is self._stack:
+            self.focus_editor()
+        elif target is self.sidebar:
+            self.sidebar.focus_current()
+        else:
+            self.findbar.open()
+
+    def editor_command(self, method: str, *args) -> None:
+        if self._mode != "live":
+            return
+        self._preview.setFocus()
+        if args == ("__active__",):
+            script = "App.switchTo(App.activeIndex, {raw:true, caret:0});"
+        else:
+            script = f"App.{method}({','.join(json.dumps(a, ensure_ascii=False) for a in args)});"
+        self._preview.page().runJavaScript("typeof App !== 'undefined' && App.bridge && (() => {" + script + "})();")
+
+    def format_text(self, before: str, after: str | None = None) -> None:
+        after = before if after is None else after
+        if self._mode == "live":
+            self.editor_command("wrapSelection", before, after)
+        else:
+            cursor = self._source.textCursor()
+            start = cursor.selectionStart()
+            selected = cursor.selectedText().replace("\u2029", "\n")
+            cursor.insertText(before + selected + after)
+            cursor.setPosition(start + len(before))
+            cursor.setPosition(start + len(before) + len(selected.encode("utf-16-le")) // 2, QTextCursor.KeepAnchor)
+            self._source.setTextCursor(cursor)
+            self._source.setFocus()
+
+    def insert_text(self, text: str) -> None:
+        if self._mode == "live":
+            self.editor_command("insertMarkdown", text)
+        else:
+            self._source.insertPlainText(text)
+            self._source.setFocus()
+
+    def toggle_task(self) -> None:
+        if self._mode == "live":
+            self.editor_command("toggleCurrentTask")
+        else:
+            import re
+            cursor = self._source.textCursor()
+            cursor.select(QTextCursor.BlockUnderCursor)
+            raw = cursor.selectedText()
+            match = re.match(r"^(\s*[-+*]\s+)\[([ xX])\]", raw)
+            text = (raw[:match.start(2)] + ("x" if match.group(2) == " " else " ") + raw[match.end(2):]
+                    if match else "- [ ] " + raw)
+            cursor.insertText(text)
+            self._source.setTextCursor(cursor)
+            self._source.setFocus()
+
+    def insert_image(self) -> None:
+        from ..services.image_service import import_image
+        path, _ = QFileDialog.getOpenFileName(self, "插入图片", "", "图片 (*.png *.jpg *.jpeg *.gif *.webp *.svg)")
+        if path:
+            s = settings_service().current
+            self.insert_text(import_image(src_path=path, doc_path=self._file_path,
+                                          folder=s.image_folder, path_type=s.image_path_type))
+
+    def open_replace(self) -> None:
+        if self._mode == "live":
+            self.toggle_mode()
+        self.findbar.open()
+
+    def select_document(self) -> None:
+        if self._mode == "live":
+            self.toggle_mode()
+        self._source.selectAll()
+        self._source.setFocus()
 
     def _build_timers(self) -> None:
         self._stats_timer = QTimer(self)
@@ -254,7 +397,7 @@ class MainWindow(QMainWindow):
         self._watch_file(None)
         if self._mode == "live":
             self._doc.set_text("")
-            self._preview.reload_blocks()
+            self._preview.reload_blocks(focus=True)
         else:
             self._source.set_text("")
         self._set_dirty(False)
@@ -280,7 +423,7 @@ class MainWindow(QMainWindow):
     def _load_text(self, text: str) -> None:
         if self._mode == "live":
             self._doc.set_text(text)
-            self._preview.reload_blocks()
+            self._preview.reload_blocks(focus=True)
         else:
             self._source.set_text(text)
         self._stats = count_stats(text)
@@ -331,16 +474,19 @@ class MainWindow(QMainWindow):
             self._source.setFocus()
         else:
             self._doc.set_text(self._source.get_text())
-            self._preview.reload_blocks()
+            self._preview.reload_blocks(focus=True)
             self._mode = "live"
             self._stack.setCurrentIndex(0)
+            self._preview.setFocus()
         self._refresh_status()
 
     def toggle_sidebar(self) -> None:
         if self.sidebar.isVisible():
             self.sidebar.hide()
+            self.focus_editor()
         else:
             self.sidebar.show()
+            self.sidebar.focus_current()
 
     def toggle_focus(self) -> None:
         s = settings_service().current
@@ -349,7 +495,7 @@ class MainWindow(QMainWindow):
 
     def toggle_typewriter(self) -> None:
         s = settings_service().current
-        settings_service().patch(typewriter_mode=not s.typewriter)
+        settings_service().patch(typewriter_mode=not s.typewriter_mode)
         self._preview.apply_prefs()
 
     # ---------------- 撤销 / 重做 ----------------
@@ -357,7 +503,7 @@ class MainWindow(QMainWindow):
     def _undo(self) -> None:
         if self._mode == "live":
             if self._doc.undo():
-                self._preview.reload_blocks()
+                self._preview.reload_blocks(focus=True)
                 self._on_content_changed()
         else:
             self._source.undo()
@@ -365,7 +511,7 @@ class MainWindow(QMainWindow):
     def _redo(self) -> None:
         if self._mode == "live":
             if self._doc.redo():
-                self._preview.reload_blocks()
+                self._preview.reload_blocks(focus=True)
                 self._on_content_changed()
         else:
             self._source.redo()
@@ -385,7 +531,9 @@ class MainWindow(QMainWindow):
                 self._source.setTextCursor(cursor)
                 self._source.find(text, flags)
         else:
-            self._preview.page().findText(text)
+            from PySide6.QtWebEngineCore import QWebEnginePage
+            flags = QWebEnginePage.FindFlag(0) if forward else QWebEnginePage.FindFlag.FindBackward
+            self._preview.page().findText(text, flags)
 
     def replace_text(self, find: str, replacement: str) -> None:
         if self._mode != "source":
@@ -402,14 +550,7 @@ class MainWindow(QMainWindow):
         model = build_model(self._current_text())
         b = model.blocks[block_index]
         if self._mode == "live":
-            hid = extract_headings(model)
-            target_id = next(
-                (h.id for h in hid if h.block_index == block_index), None
-            )
-            if target_id:
-                self._preview.page().runJavaScript(
-                    f"document.getElementById({target_id!r}).scrollIntoView();"
-                )
+            self.editor_command("jumpTo", block_index)
         else:
             line = self._current_text()[: b.start].count("\n") + 1
             self._source.goto_line(line)

@@ -7,6 +7,7 @@ import unittest
 import tempfile
 from unittest.mock import patch
 from pathlib import Path
+from contextlib import contextmanager
 
 os.environ.setdefault("QT_QPA_PLATFORM", "offscreen")
 os.environ.setdefault("QTWEBENGINE_CHROMIUM_FLAGS", "--disable-gpu")
@@ -84,6 +85,170 @@ class LiveEditorTests(unittest.TestCase):
         self.js("document.activeElement.dispatchEvent(new KeyboardEvent('keydown', {"
                 f"key:{json.dumps(key)}, bubbles:true, cancelable:true {extra}" + "}))")
 
+    @contextmanager
+    def main_window(self):
+        from mdnote.ui.main_window import MainWindow
+        from mdnote.core.settings import settings_service
+        with patch.object(MainWindow, "_restore_session"), patch.object(settings_service(), "patch"):
+            window = MainWindow()
+            original_view, original_doc = self.view, self.doc
+            self.view, self.doc = window._preview, window._doc
+            window.show()
+            self.wait(lambda: self.js("typeof App !== 'undefined' && App.blocks.length > 0"))
+            try:
+                yield window
+            finally:
+                window._set_dirty(False)
+                window.close()
+                window.deleteLater()
+                QCoreApplication.sendPostedEvents(None, QEvent.Type.DeferredDelete)
+                self.view, self.doc = original_view, original_doc
+
+    def test_table_keyboard_enter_exit_and_append_row(self):
+        self.load("before\n\n| A | B |\n| --- | --- |\n| one | two |\n\nafter")
+        self.js("App.startEdit(0,null,3)")
+        self.key("ArrowDown")
+        self.wait(lambda: self.js("document.activeElement.tagName") == "TH")
+        for expected in (1, 2, 3, 4):
+            self.key("Tab")
+            self.wait(lambda: self.js("App.tableCellIndex") == expected)
+        self.wait(lambda: self.js("!App.pendingTransform"))
+        self.assertEqual(self.js("document.querySelector('table').rows.length"), 3)
+        self.key("Enter", ", ctrlKey:true")
+        self.wait(lambda: self.js("App.editingIndex") == 2)
+        self.assertEqual(self.js("App.editingRaw()"), "after")
+        self.key("ArrowUp")
+        self.wait(lambda: self.js("document.activeElement.tagName") == "TD")
+        self.key("F2")
+        self.wait(lambda: self.js("App.editingIndex") == 1)
+        self.assertTrue(self.js("App.editingRaw().startsWith('| A | B |')"))
+
+    def test_wrapped_line_down_does_not_skip_remaining_lines(self):
+        self.load("word " * 70 + "\n\nafter")
+        self.js("App.startEdit(0,null,2)")
+        QTest.keyClick(self.view.focusProxy(), Qt.Key.Key_Down)
+        self.wait(lambda: self.js("App.selectionOffsets(document.activeElement)[0]") > 2)
+        self.assertEqual(self.js("App.editingIndex"), 0)
+        self.js("App.setCaret(document.activeElement, document.activeElement.textContent.length)")
+        self.key("ArrowDown")
+        self.wait(lambda: self.js("App.editingIndex") == 1)
+
+    def test_navigation_reuses_unchanged_rendered_nodes(self):
+        self.load("first\n\nsecond\n\nthird")
+        self.js("App.startEdit(0,null,2); window.__third = document.querySelector('.block[data-index=\"2\"]')")
+        self.key("ArrowDown")
+        self.wait(lambda: self.js("App.editingIndex") == 1)
+        self.assertTrue(self.js("window.__third === document.querySelector('.block[data-index=\"2\"]')"))
+
+    def test_click_and_typing_wait_for_delayed_commit(self):
+        self.load("first\n\nsecond")
+        self.js("App.startEdit(0,null,5)")
+        self.js("document.activeElement.textContent='changed'; App.setCaret(document.activeElement,7); App.syncDraft()")
+        self.js("(() => {const fn=App.bridge.commitAndLocate.bind(App.bridge);"
+                "App.bridge.commitAndLocate=(...args)=>{const cb=args.pop();fn(...args,s=>setTimeout(()=>cb(s),80))};"
+                "document.querySelector('.block[data-index=\"1\"]').dispatchEvent(new MouseEvent('mousedown',{bubbles:true,cancelable:true}));"
+                "const e=new InputEvent('beforeinput',{inputType:'insertText',data:'X',bubbles:true,cancelable:true});"
+                "if(document.activeElement.dispatchEvent(e)) document.execCommand('insertText',false,'X'); })()")
+        self.wait(lambda: self.doc.get_text() == "changed\n\nsecondX")
+        self.assertEqual(self.js("App.editingIndex"), 1)
+
+    def test_unchanged_navigation_does_not_call_backend(self):
+        self.load("first\n\nsecond")
+        self.js("App.startEdit(0,null,5); App.bridge.commitAndLocate=()=>{throw Error('unnecessary roundtrip')}")
+        self.key("ArrowDown")
+        self.assertEqual(self.js("App.editingIndex"), 1)
+
+    def test_source_multiline_indent_and_outdent(self):
+        from mdnote.editor.source_editor import SourceEditor
+        source = SourceEditor()
+        source.set_text("one\ntwo")
+        source.selectAll()
+        QTest.keyClick(source, Qt.Key.Key_Tab)
+        self.assertEqual(source.get_text(), "  one\n  two")
+        QTest.keyClick(source, Qt.Key.Key_Backtab)
+        self.assertEqual(source.get_text(), "one\ntwo")
+        source.deleteLater()
+
+    def test_source_mode_focus_and_select_document(self):
+        with self.main_window() as window:
+            self.edit("first\n\nsecond")
+            window.select_document()
+            self.assertEqual(window._source.textCursor().selectedText(), "first\u2029\u2029second")
+            self.assertTrue(window._source.hasFocus())
+            window.toggle_mode()
+            self.wait(lambda: self.js("document.activeElement.classList.contains('is-editing')"))
+
+    def test_table_commands_preserve_alignment_and_leave_focus_in_cell(self):
+        self.load("| A | B |\n| --- | --- |\n| one | two |")
+        self.js("App.switchTo(0,{cell:2})")
+        self.js("App.tableCommand('column')")
+        self.wait(lambda: self.js("!App.pendingTransform"))
+        self.assertEqual(self.js("document.querySelector('table').rows[0].cells.length"), 3)
+        self.js("App.tableCommand('right')")
+        self.wait(lambda: self.js("!App.pendingTransform"))
+        self.assertIn("---:", self.doc.get_text())
+        self.js("App.tableCommand('deleteColumn')")
+        self.wait(lambda: self.js("!App.pendingTransform"))
+        self.assertEqual(self.js("document.querySelector('table').rows[0].cells.length"), 2)
+        self.assertEqual(self.js("document.activeElement.tagName"), "TD")
+
+    def test_native_find_escape_and_focus_cycle(self):
+        with self.main_window() as window:
+            self.edit("searchable")
+            QTest.keyClick(self.view.focusProxy(), Qt.Key.Key_F, Qt.ControlModifier)
+            self.wait(lambda: window.findbar._find.hasFocus())
+            QTest.keyClick(window.findbar._find, Qt.Key.Key_Escape)
+            self.wait(lambda: not window.findbar.isVisible())
+            self.wait(lambda: self.js("document.activeElement.classList.contains('is-editing')"))
+            QTest.keyClick(self.view.focusProxy(), Qt.Key.Key_F6)
+            self.wait(lambda: window.sidebar._tree.hasFocus())
+            QTest.keyClick(window.sidebar._tree, Qt.Key.Key_Escape)
+            self.wait(lambda: self.view.hasFocus() or self.view.focusProxy().hasFocus())
+
+    def test_palette_keyboard_search_and_execute(self):
+        from mdnote.ui.dialogs import CommandPalette
+        with self.main_window() as window:
+            commands = window.menu_commands()
+            self.assertTrue(any('表格' in name and '删除当前列' in name for name, _ in commands))
+            dialog = CommandPalette(window, commands)
+            dialog.show()
+            QTest.keyClicks(dialog.search, "HTML")
+            self.wait(lambda: dialog.results.count() == 1)
+            QTest.keyClick(dialog.search, Qt.Key.Key_Return)
+            self.assertEqual(dialog.chosen.text(), "HTML 文件")
+            dialog.deleteLater()
+
+    def test_outline_enter_returns_to_heading_editor(self):
+        with self.main_window() as window:
+            window._load_text("# first\n\ntext\n\n## second")
+            self.wait(lambda: len(self.doc.model.blocks) == 4)
+            window.focus_sidebar("outline")
+            window.sidebar._outline.setCurrentRow(1)
+            QTest.keyClick(window.sidebar._outline, Qt.Key.Key_Return)
+            self.wait(lambda: self.js("App.editingIndex") == 2)
+            self.assertEqual(self.js("App.editingRaw()"), "## second")
+
+    def test_native_format_shortcut_updates_markdown(self):
+        with self.main_window() as window:
+            self.edit("bold")
+            self.select(0, 4)
+            QTest.keyClick(self.view.focusProxy(), Qt.Key.Key_B, Qt.ControlModifier)
+            self.wait(lambda: self.doc.get_text() == "**bold**")
+
+    def test_findbar_enter_shift_enter_and_escape(self):
+        from mdnote.ui.findbar import FindBar
+        bar = FindBar()
+        calls = []
+        bar.find_next.connect(lambda text, forward: calls.append((text, forward)))
+        bar.open()
+        QTest.keyClicks(bar._find, "term")
+        QTest.keyClick(bar._find, Qt.Key.Key_Return)
+        QTest.keyClick(bar._find, Qt.Key.Key_Return, Qt.ShiftModifier)
+        self.assertEqual(calls, [("term", True), ("term", False)])
+        QTest.keyClick(bar._find, Qt.Key.Key_Escape)
+        self.assertFalse(bar.isVisible())
+        bar.deleteLater()
+
     def test_emoji_middle_enter(self):
         self.edit("A😀BC")
         self.select(3, 3)  # DOM offsets use UTF-16, Python offsets do not.
@@ -123,6 +288,56 @@ class LiveEditorTests(unittest.TestCase):
         self.wait(lambda: self.js("App.editingIndex") == 2)
         self.assertEqual(self.js("App.editingRaw()"), "target")
         self.assertEqual(self.doc.get_text(), "one\n\ntwo\n\ntarget")
+
+    def test_arrows_cross_blocks_without_mouse(self):
+        self.load("first\n\nsecond\n\nthird")
+        self.js("App.startEdit(0,null,3)")
+        self.key("ArrowDown")
+        self.wait(lambda: self.js("App.editingIndex") == 1)
+        self.key("ArrowDown")
+        self.wait(lambda: self.js("App.editingIndex") == 2)
+        self.key("ArrowUp")
+        self.wait(lambda: self.js("App.editingIndex") == 1)
+        self.assertEqual(self.doc.get_text(), "first\n\nsecond\n\nthird")
+        self.assertFalse(self.changes, "Navigation must not dirty the document")
+
+    def test_native_up_down_stay_inside_multiline_block(self):
+        self.load("line one\nline two\nline three\n\nafter")
+        self.js("App.startEdit(0,null,12)")
+        QTest.keyClick(self.view.focusProxy(), Qt.Key.Key_Down)
+        self.wait(lambda: self.js("App.selectionOffsets(document.activeElement)[0]") > 12)
+        self.assertEqual(self.js("App.editingIndex"), 0)
+        QTest.keyClick(self.view.focusProxy(), Qt.Key.Key_Down)
+        self.wait(lambda: self.js("App.editingIndex") == 1)
+
+    def test_single_click_document_padding_starts_new_block(self):
+        self.load("existing")
+        self.js("App.startEdit(0,null,8)")
+        self.js("document.getElementById('doc').dispatchEvent(new MouseEvent('mousedown',{bubbles:true,cancelable:true}))")
+        self.wait(lambda: self.js("App.editingIndex") == 1)
+        QTest.keyClicks(self.view.focusProxy(), "new")
+        self.wait(lambda: self.doc.get_text().endswith("new"))
+        self.assertEqual(self.doc.get_text(), "existing\n\nnew")
+
+    def test_escape_then_enter_restores_editing(self):
+        self.edit("changed")
+        self.key("Escape")
+        self.wait(lambda: self.js("App.editingIndex") == -1)
+        self.key("Enter")
+        self.wait(lambda: self.js("App.editingIndex") == 0)
+        self.assertEqual(self.js("App.editingRaw()"), "changed")
+
+    def test_control_home_end_and_horizontal_edges(self):
+        self.load("first\n\nlast")
+        self.js("App.startEdit(1,null,0)")
+        self.key("ArrowLeft")
+        self.wait(lambda: self.js("App.editingIndex") == 0)
+        self.assertEqual(self.js("App.selectionOffsets(document.activeElement)[0]"), 5)
+        self.key("End", ", ctrlKey:true")
+        self.wait(lambda: self.js("App.editingIndex") == 2)
+        self.key("Home", ", ctrlKey:true")
+        self.wait(lambda: self.js("App.editingIndex") == 0)
+        self.assertEqual(self.js("App.selectionOffsets(document.activeElement)[0]"), 0)
 
     def test_enter_replaces_selection(self):
         self.edit("abcdef")

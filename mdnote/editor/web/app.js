@@ -7,6 +7,11 @@ const App = {
   bridge: null,
   pendingTransform: false,
   pendingInput: [],
+  activeIndex: 0,
+  lastCaret: 0,
+  epoch: 0,
+  requestSerial: 0,
+  verticalX: null,
 
   init(bridge) {
     this.bridge = bridge;
@@ -32,7 +37,11 @@ const App = {
       if (href) bridge.openExternal(href);
     });
     this.bindMedia();
-    bridge.loadBlocks((s) => this.renderAll(JSON.parse(s)));
+    const doc = document.getElementById("doc");
+    doc.tabIndex = 0;
+    doc.setAttribute("role", "document");
+    doc.setAttribute("aria-label", "Markdown 文档编辑区");
+    bridge.loadBlocks((s) => { this.renderAll(JSON.parse(s)); this.focusEditor(); });
   },
 
   // ---------------- 图片拖放 / 粘贴 ----------------
@@ -108,26 +117,49 @@ const App = {
   attachTableEditor(blockEl, index, target) {
     const table = blockEl.querySelector("table");
     if (!table) return;
-    if (!table.dataset.bound) {
-      table.dataset.bound = "1";
       for (const cell of table.querySelectorAll("th,td")) {
+        if (cell.dataset.bound) continue;
+        cell.dataset.bound = "1";
         cell.setAttribute("tabindex", "-1");
         cell.addEventListener("click", () => this.editCell(cell, table, index));
         cell.addEventListener("input", () => this.submitTable(table, index));
         cell.addEventListener("keydown", (e) => {
-          if (e.key === "Enter") {
-            e.preventDefault();
-            cell.blur();
-          } else if (e.key === "Tab") {
-            e.preventDefault();
-            const cells = [...table.querySelectorAll("th,td")];
-            const i = cells.indexOf(cell);
-            const next = cells[i + (e.shiftKey ? -1 : 1)];
-            if (next) {
-              cell.blur();
-              this.editCell(next, table, index);
+          if (e.isComposing || e.keyCode === 229) return;
+          if (this.pendingTransform) return; // document handler queues the event
+          if (e.key === "F2" || ((e.ctrlKey || e.metaKey) && e.key !== "Enter")) return;
+          const cells = [...table.querySelectorAll("th,td")];
+          const i = cells.indexOf(cell);
+          const cols = table.rows[0].cells.length;
+          let next = null;
+          if (e.key === "Escape") {
+            e.preventDefault(); e.stopPropagation(); cell.blur(); this.focusBlock(index); return;
+          }
+          if ((e.ctrlKey || e.metaKey) && e.key === "Enter") {
+            e.preventDefault(); e.stopPropagation(); this.switchTo(index + 1, {caret:0}); return;
+          }
+          if (e.key === "Tab") next = i + (e.shiftKey ? -1 : 1);
+          else if (e.key === "Enter") next = i + (e.shiftKey ? -cols : cols);
+          else if (!e.shiftKey && ["ArrowUp", "ArrowDown", "ArrowLeft", "ArrowRight"].includes(e.key)) {
+            const selection = this.selectionOffsets(cell);
+            if (!selection || selection[0] !== selection[1]) return;
+            const offset = selection[0];
+            if (e.key === "ArrowLeft" && offset === 0) next = i - 1;
+            if (e.key === "ArrowRight" && offset === cell.textContent.length) next = i + 1;
+            if (["ArrowUp", "ArrowDown"].includes(e.key)) {
+              const rect = this.caretRect(cell, offset);
+              const edge = this.caretRect(cell, e.key === "ArrowUp" ? 0 : cell.textContent.length);
+              if (Math.abs(rect.top - edge.top) < Math.max(2, rect.height / 2)) next = i + (e.key === "ArrowUp" ? -cols : cols);
             }
           }
+          if (next === null) return;
+          e.preventDefault(); e.stopPropagation();
+          if (next >= cells.length && ["Tab", "Enter"].includes(e.key)) {
+            this.appendTableRow(table);
+            this.attachTableEditor(blockEl, index, table.querySelectorAll("th,td")[next]);
+            this.submitTable(table, index);
+          } else if (next < 0 || next >= cells.length) {
+            this.switchTo(index + (next < 0 ? -1 : 1), {caret:next < 0 ? "end" : 0, cell:next < 0 ? -1 : 0});
+          } else this.editCell(cells[next], table, index);
         });
         cell.addEventListener("blur", () => {
           if (cell.isContentEditable) {
@@ -136,19 +168,71 @@ const App = {
           }
         });
       }
-    }
     const cell = target.closest("th,td");
     if (cell) this.editCell(cell, table, index);
   },
 
   editCell(cell, table, index) {
     cell.contentEditable = "true";
-    cell.focus();
+    cell.setAttribute("role", "textbox");
+    cell.focus({preventScroll:true});
+    this.activeIndex = index;
+    this.tableCellIndex = [...table.querySelectorAll("th,td")].indexOf(cell);
+    this.markActive(index);
+    this.setCaret(cell, cell.textContent.length);
+  },
+
+  appendTableRow(table) {
+    const row = document.createElement("tr");
+    for (const header of table.rows[0].cells) {
+      const cell = document.createElement("td");
+      cell.style.textAlign = header.style.textAlign;
+      row.appendChild(cell);
+    }
+    (table.tBodies[0] || table).appendChild(row);
+    return row;
+  },
+
+  tableCommand(command) {
+    if (this.pendingTransform) { this.pendingInput.push(() => this.tableCommand(command)); return; }
+    const block = document.querySelector(`.block[data-index="${this.activeIndex}"]`);
+    const table = block && block.querySelector("table");
+    if (!table) return;
+    const cells = [...table.querySelectorAll("th,td")];
+    let cell = cells[Math.min(this.tableCellIndex || 0, cells.length - 1)];
+    const row = cell.parentElement;
+    const col = cell.cellIndex;
+    if (command === "row") {
+      const added = this.appendTableRow(table);
+      if (row.parentElement.tagName !== "THEAD") row.after(added);
+      cell = added.cells[col];
+    } else if (command === "column") {
+      for (const r of table.rows) {
+        const added = document.createElement(r.cells[col].tagName);
+        r.cells[col].after(added);
+        if (r === row) cell = added;
+      }
+    } else if (command === "deleteRow") {
+      if (row.rowIndex === 0) return; // Preserve the header required by Markdown tables.
+      cell = table.rows[row.rowIndex - 1].cells[col];
+      row.remove();
+    } else if (command === "deleteColumn") {
+      if (row.cells.length <= 1) return;
+      for (const r of table.rows) r.cells[col].remove();
+      cell = row.cells[Math.min(col, row.cells.length - 1)];
+    } else if (["left", "center", "right"].includes(command)) {
+      for (const r of table.rows) r.cells[col].style.textAlign = command;
+    }
+    this.attachTableEditor(block, this.activeIndex, cell);
+    this.submitTable(table, this.activeIndex);
   },
 
   submitTable(table, index) {
+    if (this.pendingTransform) { this.pendingInput.push(() => this.submitTable(table, index)); return; }
+    if (!table.isConnected) return;
     const md = this.tableToMarkdown(table);
-    this.bridge.updateTable(index, md, (s) => { this.blocks = JSON.parse(s); });
+    if (this.blocks[index].raw === md) return;
+    this.runBridge("updateTable", [index, md], (blocks) => { this.blocks = blocks; });
   },
 
   tableToMarkdown(table) {
@@ -175,24 +259,37 @@ const App = {
   // ---------------- 渲染 ----------------
 
   renderAll(blocks) {
+    const previous = this.blocks;
     this.blocks = blocks;
     this.editingIndex = -1;
     const doc = document.getElementById("doc");
-    doc.replaceChildren();
+    const oldNodes = [...doc.children];
     for (const b of blocks) {
-      const el = document.createElement("div");
+      let el = oldNodes[b.index];
+      const old = previous[b.index];
+      // Keep unchanged rendered nodes, including expensive diagrams and tables.
+      if (el && !el.classList.contains("is-editing") && old &&
+          old.raw === b.raw && old.html === b.html && old.type === b.type) continue;
+      el = document.createElement("div");
       el.className = `block block-${b.type}`;
       el.dataset.index = String(b.index);
+      el.tabIndex = -1;
+      el.setAttribute("aria-label", `第 ${b.index + 1} 段，${b.type}`);
       if (b.trailing) el.classList.add("block-trailing");
       el.innerHTML = b.html;
-      doc.appendChild(el);
+      if (oldNodes[b.index]) oldNodes[b.index].replaceWith(el);
+      else doc.appendChild(el);
     }
+    oldNodes.slice(blocks.length).forEach((el) => el.remove());
+    this.activeIndex = Math.min(this.activeIndex, blocks.length - 1);
     this.postProcess();
   },
 
   postProcess() {
     // TOC 链接：滚动到对应标题
     for (const link of document.querySelectorAll(".toc-link")) {
+      if (link.dataset.bound) continue;
+      link.dataset.bound = "1";
       link.addEventListener("click", () => {
         const el = document.getElementById(link.dataset.tocId);
         if (el) el.scrollIntoView({ behavior: "smooth", block: "start" });
@@ -260,51 +357,168 @@ const App = {
   // ---------------- 鼠标 ----------------
 
   onMouseDown(e) {
+    if (e.button !== undefined && e.button !== 0) return;
     const target = e.target;
     const clickedBlock = target.closest(".block");
-    const clickedIndex = clickedBlock ? Number(clickedBlock.dataset.index) : -1;
-    if (this.editingIndex >= 0 && clickedIndex >= 0 && clickedIndex !== this.editingIndex) {
+    if (this.pendingTransform) {
       e.preventDefault();
-      const cell = target.closest("th,td");
-      const cellIndex = cell ? [...clickedBlock.querySelectorAll("th,td")].indexOf(cell) : -1;
-      const checkboxIndex = [...clickedBlock.querySelectorAll("input.task-checkbox")].indexOf(target);
-      this.bridge.commitAndLocate(this.editingIndex, this.editingRaw(), clickedIndex, (s) => {
-        const result = JSON.parse(s);
-        this.renderAll(result.blocks);
-        const block = document.querySelector(`.block[data-index="${result.index}"]`);
-        const next = cellIndex >= 0 ? block.querySelectorAll("th,td")[cellIndex] :
-          checkboxIndex >= 0 ? block.querySelectorAll("input.task-checkbox")[checkboxIndex] : block;
-        if (next) this.onMouseDown({target:next, clientX:e.clientX, clientY:e.clientY, preventDefault() {}});
-      });
+      const index = clickedBlock ? Number(clickedBlock.dataset.index) : null;
+      const x = e.clientX, y = e.clientY;
+      this.pendingInput.push(() => this.switchTo(index === null ? this.blocks.length - 1 :
+        Math.min(index, this.blocks.length - 1), {point:{x,y}}));
       return;
     }
-    if (target.matches("input.task-checkbox")) {
+    // A single click in document padding continues writing at the end.
+    if (!clickedBlock) {
+      if (!target.closest("#doc") && target !== document.body && target !== document.documentElement) return;
       e.preventDefault();
-      const idx = Number(target.closest(".block").dataset.index);
-      this.bridge.toggleTask(idx, (s) => this.renderAll(JSON.parse(s)));
+      this.switchTo(this.blocks.length - 1, {caret:0});
       return;
     }
-    const blockEl = target.closest(".block");
-    if (!blockEl) {
-      this.markActive(null);
-      if (this.editingIndex >= 0) this.commitEdit();
-      return;
-    }
-    const idx = Number(blockEl.dataset.index);
-    this.markActive(idx);
-
-    // 表格块：走单元格可视化编辑，而不是整块 raw 源码
-    if (this.blocks[idx] && this.blocks[idx].type === "table") {
-      e.preventDefault();
-      this.attachTableEditor(blockEl, idx, target);
-      return;
-    }
-
+    const idx = Number(clickedBlock.dataset.index);
     if (this.editingIndex === idx) return; // 已在编辑：原生定位
-
     e.preventDefault();
-    const point = { x: e.clientX, y: e.clientY };
-    this.startEdit(idx, point);
+    const cell = target.closest("th,td");
+    this.switchTo(idx, {point:{x:e.clientX,y:e.clientY},
+      cell:cell ? [...clickedBlock.querySelectorAll("th,td")].indexOf(cell) : 0,
+      task:target.matches("input.task-checkbox")});
+  },
+
+  // Every transition shares one queue: navigation never races a commit/transform.
+  runBridge(method, args, apply) {
+    const epoch = this.epoch;
+    const serial = ++this.requestSerial;
+    this.pendingTransform = true;
+    this.bridge[method](...args, (s) => {
+      if (epoch !== this.epoch) return;
+      try { apply(JSON.parse(s)); }
+      finally {
+        if (serial === this.requestSerial) {
+          this.pendingTransform = false;
+          while (!this.pendingTransform && this.pendingInput.length) this.pendingInput.shift()();
+        }
+      }
+    });
+  },
+
+  loadDocument(focus = false) {
+    this.epoch++;
+    this.pendingTransform = true;
+    this.pendingInput = [];
+    const epoch = this.epoch;
+    this.bridge.loadBlocks((s) => {
+      if (epoch !== this.epoch) return;
+      this.renderAll(JSON.parse(s));
+      this.pendingTransform = false;
+      if (focus) this.focusEditor();
+      while (!this.pendingTransform && this.pendingInput.length) this.pendingInput.shift()();
+    });
+  },
+
+  switchTo(index, options = {}) {
+    if (this.pendingTransform) { this.pendingInput.push(() => this.switchTo(index, options)); return; }
+    if (index < 0 || index >= this.blocks.length) return;
+    const enter = (idx) => {
+      const block = document.querySelector(`.block[data-index="${idx}"]`);
+      if (!block) return;
+      if (options.task) {
+        this.runBridge("toggleTask", [idx], (blocks) => {
+          this.renderAll(blocks); this.focusBlock(idx);
+        });
+      } else if (this.blocks[idx].type === "table" && !options.raw) {
+        const cells = [...block.querySelectorAll("th,td")];
+        const cell = cells[options.cell === -1 ? cells.length - 1 : (options.cell || 0)];
+        if (cell) this.attachTableEditor(block, idx, cell);
+        else this.startEdit(idx, options.point, options.caret ?? null);
+      } else {
+        this.startEdit(idx, options.point, options.caret === "end" ? this.blocks[idx].raw.length : (options.caret ?? null));
+        if (options.edge) this.placeOnEdge(block, options.edge, options.x);
+      }
+    };
+    if (index === this.editingIndex) {
+      const el = document.querySelector(".is-editing");
+      el.focus({preventScroll:true});
+      if (options.caret !== undefined) this.setCaret(el, options.caret === "end" ? el.textContent.length : options.caret);
+      return;
+    }
+    const editingCell = document.querySelector("td[contenteditable=true],th[contenteditable=true]");
+    if (editingCell) editingCell.blur();
+    if (this.pendingTransform) { this.pendingInput.push(() => this.switchTo(index, options)); return; }
+    if (this.editingIndex >= 0) {
+      const raw = this.editingRaw();
+      if (raw === this.blocks[this.editingIndex].raw) {
+        this.renderAll(this.blocks);
+        enter(index);
+        return;
+      }
+      this.runBridge("commitAndLocate", [this.editingIndex, raw, index], (result) => {
+        this.renderAll(result.blocks); enter(result.index);
+      });
+    } else enter(index);
+  },
+
+  focusBlock(index) {
+    this.activeIndex = Math.max(0, Math.min(index, this.blocks.length - 1));
+    const el = document.querySelector(`.block[data-index="${this.activeIndex}"]`);
+    if (el) { el.focus({preventScroll:true}); this.markActive(this.activeIndex); }
+  },
+
+  focusEditor() {
+    if (!this.blocks.length) return;
+    if (this.editingIndex >= 0) {
+      document.querySelector(".is-editing").focus({preventScroll:true});
+    } else this.switchTo(this.activeIndex, {caret:this.lastCaret});
+  },
+
+  withEditor(action) {
+    if (this.pendingTransform) { this.pendingInput.push(() => this.withEditor(action)); return; }
+    if (this.editingIndex < 0) this.switchTo(this.activeIndex, {raw:true, caret:this.lastCaret});
+    if (this.pendingTransform) this.pendingInput.push(() => this.withEditor(action));
+    else {
+      const el = document.querySelector(".is-editing");
+      if (el) { el.focus({preventScroll:true}); action(el); }
+    }
+  },
+
+  insertMarkdown(text) {
+    this.withEditor(() => this.replaceSelection(text));
+  },
+
+  wrapSelection(before, after) {
+    this.withEditor((el) => {
+      const selection = this.selectionOffsets(el) || [el.textContent.length, el.textContent.length];
+      const [start, end] = selection;
+      const selected = el.textContent.slice(start, end);
+      el.textContent = el.textContent.slice(0, start) + before + selected + after + el.textContent.slice(end);
+      const range = this.caretRange(el, start + before.length);
+      const finish = this.caretRange(el, start + before.length + selected.length);
+      range.setEnd(finish.startContainer, finish.startOffset);
+      getSelection().removeAllRanges(); getSelection().addRange(range);
+      this.syncDraft();
+    });
+  },
+
+  toggleCurrentTask() {
+    this.withEditor((el) => {
+      const offset = (this.selectionOffsets(el) || [0])[0];
+      const start = el.textContent.lastIndexOf("\n", offset - 1) + 1;
+      const end = el.textContent.indexOf("\n", offset);
+      const line = el.textContent.slice(start, end < 0 ? undefined : end);
+      const match = /^(\s*[-+*]\s+)\[([ xX])\]/.exec(line);
+      const replaced = match ? line.replace(/\[([ xX])\]/, match[2] === " " ? "[x]" : "[ ]") : "- [ ] " + line;
+      el.textContent = el.textContent.slice(0, start) + replaced + (end < 0 ? "" : el.textContent.slice(end));
+      this.setCaret(el, offset + (match ? 0 : 6));
+      this.syncDraft();
+    });
+  },
+
+  jumpTo(index) {
+    if (this.pendingTransform) { this.pendingInput.push(() => this.jumpTo(index)); return; }
+    if (this.editingIndex >= 0) {
+      this.runBridge("commit", [this.editingIndex, this.editingRaw()], (blocks) => {
+        this.renderAll(blocks); this.switchTo(Math.min(index, blocks.length - 1), {caret:0});
+      });
+    } else this.switchTo(index, {caret:0});
   },
 
   startEdit(index, point, fixedCaret = null) {
@@ -315,8 +529,11 @@ const App = {
     el.classList.add("is-editing");
     el.textContent = raw;
     el.contentEditable = "true";
+    el.setAttribute("role", "textbox");
+    el.setAttribute("aria-multiline", "true");
     el.focus({ preventScroll: true });
     this.editingIndex = index;
+    this.activeIndex = index;
     this.markActive(index);
     let local = raw.length;
     if (fixedCaret !== null) {
@@ -331,9 +548,13 @@ const App = {
   },
 
   commitEdit() {
+    if (this.pendingTransform) { this.pendingInput.push(() => this.commitEdit()); return; }
+    if (this.editingIndex < 0) return;
     const raw = this.editingRaw();
     const idx = this.editingIndex;
-    this.bridge.commit(idx, raw, (s) => this.renderAll(JSON.parse(s)));
+    this.runBridge("commit", [idx, raw], (blocks) => {
+      this.renderAll(blocks); this.focusBlock(Math.min(idx, blocks.length - 1));
+    });
   },
 
   editingRaw() {
@@ -350,12 +571,14 @@ const App = {
   // ---------------- 按键 ----------------
 
   onKeyDown(e) {
-    if (this.editingIndex < 0) return;
+    if (e.defaultPrevented) return;
     if (e.isComposing || e.keyCode === 229) return; // IME 组字保护
-    if (this.pendingTransform && (["Enter", "Tab", "Backspace", "Delete", "Escape", " "].includes(e.key) ||
+    if (this.pendingTransform && (["Enter", "Tab", "Backspace", "Delete", "Escape", " ",
+        "ArrowUp", "ArrowDown", "ArrowLeft", "ArrowRight", "Home", "End", "PageUp", "PageDown", "F2"].includes(e.key) ||
         (e.key === '"' && window.__smartQuotes))) {
       e.preventDefault();
-      const options = {key:e.key, shiftKey:e.shiftKey, bubbles:true, cancelable:true};
+      const options = {key:e.key, shiftKey:e.shiftKey, ctrlKey:e.ctrlKey, altKey:e.altKey, metaKey:e.metaKey,
+        bubbles:true, cancelable:true};
       this.pendingInput.push(() => {
         const replay = new KeyboardEvent("keydown", options);
         document.activeElement.dispatchEvent(replay);
@@ -365,6 +588,45 @@ const App = {
       });
       return;
     }
+    const ctrl = e.ctrlKey || e.metaKey;
+    if (ctrl && !e.altKey) {
+      const key = e.key.toLowerCase();
+      const marker = !e.shiftKey && key === "b" ? "**" : !e.shiftKey && key === "i" ? "*" :
+        e.shiftKey && key === "x" ? "~~" : e.shiftKey && key === "`" ? "`" : null;
+      if (marker) { e.preventDefault(); this.wrapSelection(marker, marker); return; }
+      if (key === "k" && !e.shiftKey) { e.preventDefault(); this.wrapSelection("[", "](https://)"); return; }
+      if (key === "z" || key === "y") {
+        e.preventDefault(); this.history(key === "y" || e.shiftKey ? "redo" : "undo"); return;
+      }
+    }
+    if (ctrl && !e.shiftKey && ["Home", "End"].includes(e.key)) {
+      e.preventDefault();
+      this.switchTo(e.key === "Home" ? 0 : this.blocks.length - 1, {caret:0});
+      return;
+    }
+    if ((ctrl && e.key === "Tab") || (ctrl && ["ArrowUp", "ArrowDown"].includes(e.key))) {
+      e.preventDefault();
+      const backwards = e.key === "ArrowUp" || (e.key === "Tab" && e.shiftKey);
+      this.switchTo(this.activeIndex + (backwards ? -1 : 1), {caret:backwards ? "end" : 0, cell:backwards ? -1 : 0});
+      return;
+    }
+    if (e.key === "F2") {
+      e.preventDefault();
+      this.switchTo(this.activeIndex, {raw:true, caret:0});
+      return;
+    }
+    if (this.editingIndex < 0) {
+      if (["Enter", "ArrowUp", "ArrowDown", "ArrowLeft", "ArrowRight"].includes(e.key)) {
+        e.preventDefault();
+        const delta = ["ArrowUp", "ArrowLeft"].includes(e.key) ? -1 : e.key === "Enter" ? 0 : 1;
+        this.switchTo(Math.max(0, Math.min(this.blocks.length - 1, this.activeIndex + delta)), {caret:0});
+      } else if (!ctrl && !e.altKey && e.key.length === 1 && !e.target.closest("th,td")) {
+        e.preventDefault();
+        this.switchTo(this.activeIndex, {caret:this.lastCaret});
+        this.replaceSelection(e.key);
+      }
+      return;
+    }
     const el = document.querySelector(".block.is-editing");
     if (!el) return;
     const selection = this.selectionOffsets(el);
@@ -372,6 +634,40 @@ const App = {
     const [off, end] = selection;
     const raw = el.textContent.slice(0, off) + el.textContent.slice(end);
     const key = e.key;
+
+    if (!key.startsWith("Arrow")) this.verticalX = null;
+    if (!e.shiftKey && off === end) {
+      if ((key === "ArrowLeft" && off === 0) || (key === "ArrowRight" && end === el.textContent.length)) {
+        e.preventDefault();
+        this.switchTo(this.editingIndex + (key === "ArrowLeft" ? -1 : 1), {caret:key === "ArrowLeft" ? "end" : 0});
+        return;
+      }
+      if (["ArrowUp", "ArrowDown"].includes(key)) {
+        const rect = this.caretRect(el, off);
+        const edge = this.caretRect(el, key === "ArrowUp" ? 0 : el.textContent.length);
+        if (Math.abs(rect.top - edge.top) < Math.max(2, rect.height / 2)) {
+          e.preventDefault();
+          this.verticalX ??= rect.left;
+          this.switchTo(this.editingIndex + (key === "ArrowUp" ? -1 : 1),
+            {edge:key === "ArrowUp" ? "end" : "start", x:this.verticalX, cell:key === "ArrowUp" ? -1 : 0});
+          return;
+        }
+      }
+      if (["PageUp", "PageDown"].includes(key)) {
+        e.preventDefault();
+        const direction = key === "PageUp" ? -1 : 1;
+        const rect = this.caretRect(el, off);
+        const y = rect.top + direction * window.innerHeight * .8;
+        let index = this.editingIndex;
+        for (let i = index + direction; i >= 0 && i < this.blocks.length; i += direction) {
+          index = i;
+          const b = document.querySelector(`.block[data-index="${i}"]`).getBoundingClientRect();
+          if (direction > 0 ? b.bottom >= y : b.top <= y) break;
+        }
+        this.switchTo(index, {caret:direction > 0 ? 0 : "end"});
+        return;
+      }
+    }
 
     if (key === "Enter") {
       e.preventDefault();
@@ -399,20 +695,22 @@ const App = {
   },
 
   requestTransform(el, command, offset, raw) {
-    this.pendingTransform = true;
-    this.bridge.transform(this.editingIndex, command, offset, raw, (s) => {
-      try {
-        const st = JSON.parse(s);
+    this.runBridge("transform", [this.editingIndex, command, offset, raw], (st) => {
         if (st && st.enter) {
           this.renderAll(st.blocks);
           this.startEdit(st.enter.index, null, st.enter.caret);
         } else if (st) {
           this.applyInline(el, st);
         }
-      } finally {
-        this.pendingTransform = false;
-        while (!this.pendingTransform && this.pendingInput.length) this.pendingInput.shift()();
-      }
+    });
+  },
+
+  history(command) {
+    if (this.pendingTransform) { this.pendingInput.push(() => this.history(command)); return; }
+    const index = this.activeIndex;
+    this.runBridge(command, [], (blocks) => {
+      this.renderAll(blocks);
+      this.switchTo(Math.min(index, blocks.length - 1), {caret:"end"});
     });
   },
 
@@ -462,6 +760,42 @@ const App = {
 
   // ---------------- 选区工具 ----------------
 
+  caretRange(root, offset) {
+    if (!root.firstChild) root.appendChild(document.createTextNode(""));
+    const walker = document.createTreeWalker(root, NodeFilter.SHOW_TEXT);
+    let node = walker.nextNode(), remaining = Math.max(0, offset), last = node;
+    while (node) {
+      last = node;
+      if (remaining <= node.textContent.length) break;
+      remaining -= node.textContent.length;
+      node = walker.nextNode();
+    }
+    const range = document.createRange();
+    range.setStart(node || last, node ? remaining : last.textContent.length);
+    range.collapse(true);
+    return range;
+  },
+
+  caretRect(root, offset) {
+    const rect = this.caretRange(root, offset).getBoundingClientRect();
+    return rect.height ? rect : root.getBoundingClientRect();
+  },
+
+  placeOnEdge(root, edge, x) {
+    const fallback = edge === "end" ? root.textContent.length : 0;
+    const rect = this.caretRect(root, fallback);
+    const bounds = root.getBoundingClientRect();
+    // Scroll the target line into view before using viewport hit testing.
+    if (rect.top < 0 || rect.bottom > window.innerHeight) {
+      window.scrollBy(0, rect.top - window.innerHeight / 2);
+    }
+    const line = this.caretRect(root, fallback);
+    const range = document.caretRangeFromPoint(Math.max(bounds.left + 13, Math.min(x, bounds.right - 13)), line.top + line.height / 2);
+    const offset = range && root.contains(range.startContainer) ?
+      this.textOffset(root, range.startContainer, range.startOffset) : fallback;
+    this.setCaret(root, offset);
+  },
+
   selectionOffsets(root) {
     const sel = getSelection();
     if (!sel.rangeCount) return null;
@@ -490,25 +824,16 @@ const App = {
   },
 
   setCaret(root, offset) {
-    if (!root.firstChild) root.appendChild(document.createTextNode(""));
-    const walker = document.createTreeWalker(root, NodeFilter.SHOW_TEXT);
-    let remaining = offset;
-    let node = walker.nextNode();
-    while (node) {
-      const len = node.textContent.length;
-      if (remaining <= len) {
-        const range = document.createRange();
-        range.setStart(node, remaining);
-        range.collapse(true);
-        const sel = getSelection();
-        sel.removeAllRanges();
-        sel.addRange(range);
-        this.scrollTypewriter();
-        return;
-      }
-      remaining -= len;
-      node = walker.nextNode();
+    const range = this.caretRange(root, offset);
+    const sel = getSelection();
+    sel.removeAllRanges();
+    sel.addRange(range);
+    this.lastCaret = Math.min(offset, root.textContent.length);
+    const rect = range.getBoundingClientRect();
+    if (rect.height && (rect.top < 12 || rect.bottom > window.innerHeight - 12)) {
+      window.scrollBy(0, rect.top < 12 ? rect.top - 12 : rect.bottom - window.innerHeight + 12);
     }
+    this.scrollTypewriter();
   },
 };
 

@@ -39,8 +39,12 @@ html, body {
 .block.is-editing {
   white-space: pre-wrap;
   word-break: break-word;
-  background: color-mix(in srgb, var(--accent) 8%, transparent);
+  background: color-mix(in srgb, var(--accent) 3%, transparent);
 }
+
+.block:focus-visible:not(.is-editing) { outline: 1px solid var(--border); }
+.block.is-editing, .block[contenteditable='true'] { min-height: 1.7em; }
+.block-trailing:empty::before { content: '\200b'; }
 
 .block-trailing { min-height: 1.7em; }
 

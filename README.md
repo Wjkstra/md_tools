@@ -25,8 +25,14 @@ MdNote 把「写作」与「排版」合二为一，提供两种由你掌控的�
 
 - 双模式：渲染后所见即所得 / 整篇源码，`Ctrl+/` 切换
 - 点击任意位置光标精确就位；中文输入法组字期间不被打断
+- **命令面板**（`Ctrl+Shift+P`）：搜索并执行任意菜单命令，附快捷键提示
+- **常用格式快捷键**（两种模式通用）：加粗 `Ctrl+B`、斜体 `Ctrl+I`、
+  删除线 `Ctrl+Shift+X`、行内代码 `Ctrl+Shift+\``、链接 `Ctrl+K`
+- 一键插入代码块（`Ctrl+Shift+K`）、表格、分隔线、图片（`Ctrl+Shift+I`）、任务项（`Ctrl+Shift+Enter`）
 - 智能回车（见下）、行首退格合并、`Tab` 缩进
 - 符号自动配对，可选智能弯引号
+- **全键盘可操作**：`F6` 在编辑器 / 侧边栏 / 查找栏间循环焦点；
+  侧边栏 `Esc` 返回编辑器
 
 ### 智能回车
 
@@ -45,7 +51,8 @@ MdNote 把「写作」与「排版」合二为一，提供两种由你掌控的�
 - **代码块**：Pygments 语法高亮、行号开关、一键复制
 - **数学公式**：KaTeX 渲染行内 `$...$` 与块级 `$$...$$`
 - **Mermaid 图表**：流程图、时序图、甘特图、饼图等
-- **可视化表格**：单元格直接编辑、`Tab` 跨格导航、失焦自动回写
+- **可视化表格**：单元格直接编辑、`Tab` 跨格导航、失焦自动回写；
+  菜单可在下方插入行 / 右侧插入列、删除行列、设置列对齐
 - **`[toc]` 自动目录**：随文档更新，点击跳转
 - **YAML Front Matter**：头部元信息解析展示
 
@@ -97,7 +104,8 @@ python -m mdnote
 ### 运行测试
 
 ```bash
-python tests/test_editor.py       # 编辑器变换回归测试
+python tests/test_editor.py        # 编辑器变换纯函数回归测试
+python tests/test_live_editor.py   # WebEngine 集成测试（真实页面交互）
 python tests/test_live_editor.py  # Qt WebEngine 交互、保存与模式切换回归测试
 ```
 
@@ -139,10 +147,17 @@ makensis installer/setup.nsi
 | 新建 / 打开 / 保存 | `Ctrl+N` / `Ctrl+O` / `Ctrl+S` |
 | 打开文件夹 / 另存为 | `Ctrl+Shift+O` / `Ctrl+Shift+S` |
 | 撤销 / 重做 | `Ctrl+Z` / `Ctrl+Y` |
+| 加粗 / 斜体 / 删除线 | `Ctrl+B` / `Ctrl+I` / `Ctrl+Shift+X` |
+| 行内代码 / 链接 | `Ctrl+Shift+\`` / `Ctrl+K` |
+| 插入代码块 / 表格 / 分隔线 / 图片 | `Ctrl+Shift+K` / 菜单 / 菜单 / `Ctrl+Shift+I` |
+| 切换任务项 / 编辑当前块源码 | `Ctrl+Shift+Enter` / `F2` |
+| 查找 / 替换 / 全选 | `Ctrl+F` / `Ctrl+H` / `Ctrl+Shift+A` |
+| 查找下一个 / 上一个 | `F3` / `Shift+F3` |
 | 切换源码 / 渲染后模式 | `Ctrl+/` |
-| 侧边栏 | `Ctrl+J` |
+| 命令面板 | `Ctrl+Shift+P` |
+| 侧边栏：切换 / 文件树 / 大纲 / 返回编辑器 | `Ctrl+J` / `Ctrl+Shift+E` / `Ctrl+Shift+L` / `Ctrl+Alt+E` |
+| 下一 / 上一区域焦点 | `F6` / `Shift+F6` |
 | 专注模式 / 打字机模式 | `F8` / `F9` |
-| 查找 | `Ctrl+F` |
 | 设置 | `Ctrl+,` |
 | 退出 | `Ctrl+Q` |
 
