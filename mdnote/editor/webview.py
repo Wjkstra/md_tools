@@ -82,6 +82,11 @@ def _render_block(raw: str) -> str:
     return markdown_engine().render(raw)
 
 
+def invalidate_render_cache() -> None:
+    """Markdown 引擎 / 启用插件变化后清空块渲染缓存。"""
+    _render_block.cache_clear()
+
+
 def _blocks_payload(model, base: str | None = None) -> list[dict]:
     headings = extract_headings(model)
     heading_by_block = {h.block_index: h for h in headings}

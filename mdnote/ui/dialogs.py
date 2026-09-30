@@ -9,6 +9,7 @@ from PySide6.QtWidgets import (
     QDialogButtonBox,
     QFormLayout,
     QInputDialog,
+    QLabel,
     QLineEdit,
     QListWidget,
     QListWidgetItem,
@@ -19,6 +20,7 @@ from PySide6.QtWidgets import (
 )
 
 from ..core.settings import settings_service
+from ..services.plugin_loader import discover, plugins_dir
 
 
 class CommandPalette(QDialog):
@@ -130,12 +132,30 @@ class SettingsDialog(QDialog):
 
         self._imgfolder = QLineEdit(s.image_folder)
 
+        # 插件：列出已发现的扩展供勾选
+        self._plugins = QListWidget()
+        self._plugins.setMinimumHeight(120)
+        known = {p.name for p in discover()}
+        for name in sorted(set(s.enabled_plugins) | known):
+            item = QListWidgetItem(name)
+            item.setFlags(item.flags() | Qt.ItemIsUserCheckable)
+            item.setCheckState(Qt.Checked if name in s.enabled_plugins else Qt.Unchecked)
+            if name not in known:
+                item.setText(f"{name}（未找到）")
+                item.setForeground(Qt.gray)
+            self._plugins.addItem(item)
+        plugin_hint = QLabel(f"插件目录：{plugins_dir()}\n插件为 Python 代码，请只启用信任来源。")
+        plugin_hint.setWordWrap(True)
+        plugin_hint.setStyleSheet("color: gray;")
+
         form.addRow("主题", self._theme)
         form.addRow("字号", self._font)
         form.addRow("", self._autosave)
         form.addRow("", self._mermaid)
         form.addRow("", self._linenos)
         form.addRow("图片目录", self._imgfolder)
+        form.addRow("插件", self._plugins)
+        form.addRow("", plugin_hint)
 
         buttons = QDialogButtonBox(QDialogButtonBox.Ok | QDialogButtonBox.Cancel)
         buttons.accepted.connect(self.accept)
@@ -143,6 +163,11 @@ class SettingsDialog(QDialog):
         form.addRow(buttons)
 
     def accept(self) -> None:
+        enabled = [
+            self._plugins.item(i).text().replace("（未找到）", "")
+            for i in range(self._plugins.count())
+            if self._plugins.item(i).checkState() == Qt.Checked
+        ]
         settings_service().patch(
             theme=self._theme.currentText(),
             font_size=self._font.value(),
@@ -150,5 +175,6 @@ class SettingsDialog(QDialog):
             mermaid=self._mermaid.isChecked(),
             code_line_numbers=self._linenos.isChecked(),
             image_folder=self._imgfolder.text().strip() or "assets",
+            enabled_plugins=enabled,
         )
         super().accept()

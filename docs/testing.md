@@ -9,7 +9,10 @@ MdNote 有两层自动化测试：**纯函数单元测试**与 **WebEngine 集�
 # ① 编辑器变换纯函数回归（无需 GUI，毫秒级）
 python tests/test_editor.py
 
-# ② WebEngine 集成测试（真实页面 + QWebChannel）
+# ② 插件加载器
+python tests/test_plugin_loader.py
+
+# ③ WebEngine 集成测试（真实页面 + QWebChannel）
 python -m unittest tests.test_live_editor
 ```
 
@@ -26,7 +29,8 @@ python -m unittest tests.test_live_editor
 | 套件 | 内容 | 用例数 | 结果 |
 | --- | --- | --- | --- |
 | `tests/test_editor.py` | 块解析、智能回车、合并、缩进、空格触发、包裹、序列化往返 | 33 项断言 | ✅ 通过 |
-| `tests/test_live_editor.py` | 真实 `QWebEngineView` + `QWebChannel` 的端到端交互 | 40 个测试 | ✅ 通过（约 28s） |
+| `tests/test_plugin_loader.py` | 插件目录扫描、按名导入、扩展参与渲染、错误隔离 | 8 项断言 | ✅ 通过 |
+| `tests/test_live_editor.py` | 真实 `QWebEngineView` + `QWebChannel` 的端到端交互 | 40 个测试 | ✅ 通过（约 27s） |
 
 ## 集成测试覆盖范围
 

@@ -2,12 +2,11 @@
 
 MdNote 的可扩展性建立在 **Python-Markdown 扩展机制**之上：
 Markdown 的解析由一系列处理器（processor）组成，你可以注册新的处理器来
-增加语法、改写树结构或调整输出。本文介绍扩展点、结构与完整示例。
+增加语法、改写树结构或调整输出。本文介绍扩展点、插件结构、安装启停与完整示例。
 
-> 术语说明：Python-Markdown 中的「Extension（扩展）」是向解析管线
-> 添加处理器的标准方式，这是当前即可使用的能力。
-> 将第三方扩展放入用户数据目录、在设置面板勾选启停的「自动加载器」
-> 属于 **（规划中）** 能力；在此之前，可按本文方式在代码中启用扩展。
+> 插件机制当前已可用：把扩展放入用户数据目录的 `plugins/` 文件夹，
+> 在 **设置 → 插件** 中勾选即启用、取消即停用；变更后即时生效，重启也会自动加载。
+> 也可以直接在代码中把扩展实例传给引擎。
 
 ## 1. 扩展点总览
 
@@ -21,29 +20,35 @@ Markdown 的解析由一系列处理器（processor）组成，你可以注册�
 扩展产出的 HTML 与其他渲染内容一样经过 nh3 白名单净化，
 因此输出标签必须是允许的排版标签（如 `span`、`div` 等）。
 
-## 2. 扩展文件结构
+## 2. 安装插件
 
-一个扩展就是一个提供 `makeExtension()` 的 Python 模块：
-
-```
-my_extension.py
-```
-
-规划中的插件目录约定：
+插件目录为 `<用户数据目录>/plugins/`，支持两种布局：
 
 ```
 <用户数据目录>/plugins/
-└── my-plugin/
-    ├── __init__.py        # 提供 makeExtension
-    └── README.md
+├── my_ext.py                 # 单文件：模块名取文件名（下划线开头的文件忽略）
+└── my_pkg/
+    └── __init__.py           # 或一个 Python 包
 ```
 
-查看用户数据目录：应用内设置面板，或：
+查看插件目录的实际路径：**设置 → 插件**下方提示，或：
 
 ```python
-from mdnote.config import app_data_dir
-print(app_data_dir())
+from mdnote.services.plugin_loader import plugins_dir
+print(plugins_dir())
 ```
+
+安装步骤：
+
+1. 把提供 `makeExtension()` 的 `.py` 文件（或包）放入插件目录
+2. 打开 **设置（Ctrl+,）→ 插件**，勾选该插件并确定
+3. 渲染立即使用新插件；列表中找不到的已勾选插件会灰色标注「未找到」
+
+仓库提供可直接试用的示例：[`examples/plugins/example_replace.py`](../examples/plugins/example_replace.py)
+（把 `->`、`:ok:` 替换为箭头、✅），复制进插件目录即可。
+
+> 插件是 Python 代码，运行在本应用进程中，请只启用信任来源。
+> 某插件加载失败（导入错误、缺少 `makeExtension` 等）会弹出提示，且不影响其它插件。
 
 ## 3. 生命周期
 
@@ -101,10 +106,9 @@ def makeExtension(**kwargs):
     return ReplaceExtension(**kwargs)
 ```
 
-### 启用方式（当前可用）
+### 在代码中直接验证
 
-在构建 Markdown 引擎处把扩展加入 extensions 列表，或在获取渲染前
-手动传入。例如直接验证：
+开发插件时可脱离应用、单独验证输出：
 
 ```python
 import markdown
@@ -115,7 +119,7 @@ print(html)
 # <p>状态 <span>✅</span> ，方向 <span>→</span></p>
 ```
 
-> 输出中的 `<span>` 在 nh3 允许列表内，渲染后正常显示。
+正式使用时按 §2 放入插件目录勾选即可；输出中的 `<span>` 在 nh3 允许列表内。
 
 ## 5. 完整示例：块级提示容器
 

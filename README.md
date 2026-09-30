@@ -55,6 +55,7 @@ MdNote 把「写作」与「排版」合二为一，提供两种由你掌控的�
   菜单可在下方插入行 / 右侧插入列、删除行列、设置列对齐
 - **`[toc]` 自动目录**：随文档更新，点击跳转
 - **YAML Front Matter**：头部元信息解析展示
+- **自定义扩展**：可在设置中启停 Python-Markdown 插件（见[扩展开发](docs/plugin-development.md)）
 
 > KaTeX、Mermaid 等资源**已离线内置**，无需联网即可使用。
 
@@ -104,9 +105,9 @@ python -m mdnote
 ### 运行测试
 
 ```bash
-python tests/test_editor.py        # 编辑器变换纯函数回归测试
-python tests/test_live_editor.py   # WebEngine 集成测试（真实页面交互）
-python tests/test_live_editor.py  # Qt WebEngine 交互、保存与模式切换回归测试
+python tests/test_editor.py          # 编辑器变换纯函数回归
+python tests/test_plugin_loader.py   # 插件加载器
+python -m unittest tests.test_live_editor   # WebEngine 集成测试（真实页面交互）
 ```
 
 ## 📦 构建与安装
@@ -219,10 +220,12 @@ docs/                   完整技术文档
 
 ## 🗺️ 规划方向
 
-- 插件自动加载器（设置中勾选启停 Python-Markdown 扩展）
 - 超长文档的分块按需排版
 - 多标签 / 多窗口文档管理
 - 文件夹全文检索、更多内置主题、自动更新
+
+> 自定义 Python-Markdown 扩展已支持：放入插件目录后在设置面板勾选启停，
+> 详见[扩展与插件开发](docs/plugin-development.md)。
 
 ## 📄 许可证
 

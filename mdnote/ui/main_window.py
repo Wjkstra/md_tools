@@ -21,8 +21,12 @@ from ..core.word_count import DocStats, count_stats
 from .. import config
 from ..editor.block_model import build_model, extract_headings
 from ..editor.source_editor import SourceEditor
-from ..editor.webview import LiveDocument, WebPreview
-from ..services import exporter
+from ..editor.webview import (
+    LiveDocument,
+    WebPreview,
+    invalidate_render_cache,
+)
+from ..services import exporter, markdown_engine
 from .dialogs import CommandPalette, SettingsDialog, alert, confirm, prompt
 from .findbar import FindBar
 from .sidebar import Sidebar
@@ -55,6 +59,9 @@ class MainWindow(QMainWindow):
 
         # 文档与编辑器
         self._doc = LiveDocument(self._on_content_changed)
+        # 启动即按已启用插件配置渲染引擎（需在首次构建渲染负载之前）
+        self._enabled_plugins = list(settings_service().current.enabled_plugins)
+        markdown_engine.reconfigure(self._enabled_plugins)
         self._preview = WebPreview(self._doc, get_doc_path=lambda: self._file_path)
         self._source = SourceEditor()
         self._source.content_changed_detail.connect(self._on_content_changed)
@@ -93,8 +100,21 @@ class MainWindow(QMainWindow):
 
         self._build_menus()
         self._build_timers()
-        settings_service().on_change(lambda _s: self._preview.apply_prefs())
+        settings_service().on_change(self._on_settings_changed)
         self._restore_session()
+
+    def _on_settings_changed(self, s) -> None:
+        self._preview.apply_prefs()
+        enabled = list(s.enabled_plugins)
+        if enabled != self._enabled_plugins:
+            errors = markdown_engine.reconfigure(enabled)
+            invalidate_render_cache()
+            self._enabled_plugins = enabled
+            if self._mode == "live":
+                self._preview.reload_blocks(focus=False)
+            if errors:
+                detail = "\n".join(f"• {name}: {msg}" for name, msg in errors)
+                alert(self, f"部分插件未能加载：\n{detail}")
 
     # ---------------- 菜单 ----------------
 
