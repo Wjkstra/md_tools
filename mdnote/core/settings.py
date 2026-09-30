@@ -30,6 +30,8 @@ class AppSettings:
     enabled_plugins: List[str] = field(default_factory=list)
     recent_files: List[str] = field(default_factory=list)
     recent_folders: List[str] = field(default_factory=list)
+    update_url: str = ""        # 自定义更新清单地址（留空用内置默认）
+    auto_check_updates: bool = True
 
 
 class SettingsService:

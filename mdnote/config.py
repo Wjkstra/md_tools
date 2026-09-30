@@ -36,3 +36,8 @@ def web_dir() -> Path:
 
 def icon_file() -> Path:
     return _base_dir() / "mdnote" / "resources" / "icon.ico"
+
+
+# 更新清单地址。发布前把这里改成你的 Gitee/GitHub raw 地址；
+# 用户也可在「设置」里用自定义 URL 覆盖。
+DEFAULT_MANIFEST_URL = ""

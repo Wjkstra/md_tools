@@ -50,6 +50,16 @@ class MainWindow(QMainWindow):
         self._enabled_plugins = list(settings_service().current.enabled_plugins)
         markdown_engine.reconfigure(self._enabled_plugins)
 
+        # 自动更新（清单 URL：设置覆盖 > 内置默认）
+        from .. import __version__
+        from ..services.updater import UpdateManager
+
+        manifest_url = (
+            settings_service().current.update_url or config.DEFAULT_MANIFEST_URL
+        )
+        self.updater = UpdateManager(manifest_url, __version__, self)
+        self._wire_updater()
+
         # 标签栏
         self.tabs = QTabWidget()
         self.tabs.setTabsClosable(True)
@@ -310,6 +320,7 @@ class MainWindow(QMainWindow):
         m_view.addAction(action("打字机模式", self.toggle_typewriter, "F9"))
 
         m_help = mb.addMenu("帮助(&H)")
+        m_help.addAction(action("检查更新…", self.check_for_updates))
         m_help.addAction(action("命令面板…", self.open_commands, "Ctrl+Shift+P"))
         m_help.addAction(action("设置", lambda: SettingsDialog(self).exec(), "Ctrl+,"))
         m_help.addAction(action("关于", lambda: self.alert(f"MdNote {_version()}")))
@@ -512,6 +523,85 @@ class MainWindow(QMainWindow):
         ok, err = exporter.pandoc_export(self._current_text(), fmt)
         if not ok:
             self.alert(f"导出失败：{err}")
+
+    # =========================================================
+    #  自动更新
+    # =========================================================
+
+    def _wire_updater(self) -> None:
+        self.updater.update_available.connect(self._on_update_available)
+        self.updater.check_failed.connect(
+            lambda msg: self.alert(f"检查更新失败：{msg}")
+        )
+        self.updater.download_progress.connect(self._on_download_progress)
+        self.updater.download_finished.connect(self._on_download_finished)
+        self.updater.download_failed.connect(
+            lambda msg: self.alert(f"更新失败：{msg}")
+        )
+        # 启动后短暂延迟，后台静默检查
+        if settings_service().current.auto_check_updates and self.updater._url:
+            QTimer.singleShot(1500, lambda: self.updater.check(silent=True))
+
+    def check_for_updates(self) -> None:
+        if not self.updater._url:
+            self.alert(
+                "尚未配置更新源。请在「设置 → 更新」中填写更新清单 URL，"
+                "或让开发者在程序内置发布地址。"
+            )
+            return
+        self.statusbar and self.statusbar.update_state(
+            self._dirty, self._mode, self._stats, "正在检查更新…"
+        )
+        self.updater.check(silent=False)
+
+    def _on_update_available(self, release) -> None:
+        required = self.updater.required()
+        title = "发现新版本" if not required else "发现重要更新"
+        box = QMessageBox(self)
+        box.setWindowTitle(title)
+        notes = release.notes.strip() or "（未提供更新说明）"
+        box.setText(f"新版本 {release.version} 可用（当前 {self.updater._current}）")
+        box.setInformativeText(notes)
+        now = box.addButton(
+            "立即下载" if not required else "立即更新",
+            QMessageBox.AcceptRole,
+        )
+        later = box.addButton(
+            "稍后" if not required else "退出",
+            QMessageBox.RejectRole,
+        )
+        box.setDefaultButton(now)
+        box.exec()
+        if box.clickedButton() is now:
+            self._download_message = box
+            self.updater.download()
+
+    def _on_download_progress(self, percent: int) -> None:
+        self.statusbar.update_state(
+            self._dirty, self._mode, self._stats,
+            f"正在下载更新… {percent}%",
+        )
+
+    def _on_download_finished(self, path: str) -> None:
+        import subprocess
+        import sys
+
+        # 下载完成：启动安装程序。NSIS 安装包会处理覆盖升级，
+        # 传 /S 静默安装到原目录（若用户想交互，可不带参数）。
+        try:
+            if getattr(sys, "frozen", False):
+                # 已安装：静默升级（安装包会关闭运行中的实例）
+                subprocess.Popen([path, "/S"])
+            else:
+                # 开发环境：直接弹出安装向导
+                subprocess.Popen([path])
+        except OSError as e:
+            self.alert(f"无法启动安装程序：{e}")
+            return
+        self.alert(
+            "安装包已准备好，即将启动安装程序。\n"
+            "如安装向导没有自动出现，请重新打开：\n" + path
+        )
 
     # =========================================================
     #  外部文件改动

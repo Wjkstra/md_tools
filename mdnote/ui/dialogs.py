@@ -142,6 +142,12 @@ class SettingsDialog(QDialog):
 
         self._imgfolder = QLineEdit(s.image_folder)
 
+        # 更新设置
+        self._update_url = QLineEdit(s.update_url)
+        self._update_url.setPlaceholderText("留空使用程序内置的发布地址")
+        self._auto_check = QCheckBox("启动后自动检查更新")
+        self._auto_check.setChecked(s.auto_check_updates)
+
         # 插件：列出已发现的扩展供勾选
         self._plugins = QListWidget()
         self._plugins.setMinimumHeight(120)
@@ -164,6 +170,8 @@ class SettingsDialog(QDialog):
         form.addRow("", self._mermaid)
         form.addRow("", self._linenos)
         form.addRow("图片目录", self._imgfolder)
+        form.addRow("更新清单 URL", self._update_url)
+        form.addRow("", self._auto_check)
         form.addRow("插件", self._plugins)
         form.addRow("", plugin_hint)
 
@@ -185,6 +193,8 @@ class SettingsDialog(QDialog):
             mermaid=self._mermaid.isChecked(),
             code_line_numbers=self._linenos.isChecked(),
             image_folder=self._imgfolder.text().strip() or "assets",
+            update_url=self._update_url.text().strip(),
+            auto_check_updates=self._auto_check.isChecked(),
             enabled_plugins=enabled,
         )
         super().accept()
