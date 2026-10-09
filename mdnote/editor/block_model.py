@@ -315,11 +315,17 @@ def build_model(text: str) -> DocModel:
 
 
 def serialize(model: DocModel) -> str:
-    out = ""
+    # Splice exact separator substrings: a blank separator line may contain
+    # whitespace ("\n   \n"), which a newline-only gap count would drop. This
+    # also verifies the blocks tile the source text contiguously.
+    parts: list[str] = []
     for i, blk in enumerate(model.blocks):
-        out += blk.raw
-        out += "\n" * (model.gaps[i] if i < len(model.gaps) else 0)
-    return out
+        parts.append(blk.raw)
+        if i + 1 < len(model.blocks):
+            parts.append(model.text[blk.end:model.blocks[i + 1].start])
+        else:
+            parts.append(model.text[blk.end:])
+    return "".join(parts)
 
 
 def find_block_index(model: DocModel, offset: int) -> int:

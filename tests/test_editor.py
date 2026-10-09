@@ -174,6 +174,14 @@ else:
     FAIL += 1
     print("FAIL 块模型序列化往返不一致")
 
+# 分隔行含空白时也必须逐字节还原
+spaced = "前段\n   \n后段\n\t\n末段"
+if serialize(build_model(spaced)) == spaced:
+    PASS += 1
+else:
+    FAIL += 1
+    print("FAIL 含空白分隔行的序列化往返不一致")
+
 
 def main():
     print(f"\n{'='*40}")
