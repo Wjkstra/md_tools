@@ -105,19 +105,18 @@ VID_SilentFail:
 FunctionEnd
 
 Function .onInit
+  ; Correct precedence: built-in /D (already applied to $INSTDIR) > previous
+  ; install (registry) > default InstallDir. NSIS consumes /D before .onInit, so
+  ; detect it by $INSTDIR having moved away from the literal default.
+  StrCpy $R0 $INSTDIR
   SetRegView 64
-  ReadRegStr $0 HKLM "Software\Microsoft\Windows\CurrentVersion\Uninstall\MdNote" "InstallLocation"
-  StrCmp $0 "" keep_default
-  StrCpy $INSTDIR $0
-keep_default:
-  ; An explicit /D= destination (including paths with spaces) wins over the registry.
-  ${GetParameters} $1
-  ClearErrors
-  ${GetOptions} $1 "/D=" $2
-  IfErrors destination_ready
-  StrCmp $2 "" destination_ready
-  StrCpy $INSTDIR $2
-destination_ready:
+  ReadRegStr $R1 HKLM "Software\Microsoft\Windows\CurrentVersion\Uninstall\MdNote" "InstallLocation"
+  StrCmp $R1 "" haveDir            ; no previous install: keep /D or default
+  StrCmp $R0 "$PROGRAMFILES64\MdNote" useReg
+  Goto haveDir                     ; /D moved $INSTDIR: it wins
+useReg:
+  StrCpy $INSTDIR $R1
+haveDir:
   Call EnsureMdNoteClosed
   ; Silent installs never show the directory page, so validate explicitly.
   Call ValidateInstallDir
@@ -143,7 +142,8 @@ Section "MdNote（必需）" SecCore
   WriteRegStr HKLM "Software\Microsoft\Windows\CurrentVersion\Uninstall\MdNote" "Publisher" "MdNote"
   WriteRegStr HKLM "Software\Microsoft\Windows\CurrentVersion\Uninstall\MdNote" "DisplayIcon" "$INSTDIR\MdNote.exe"
   WriteRegStr HKLM "Software\Microsoft\Windows\CurrentVersion\Uninstall\MdNote" "InstallLocation" "$INSTDIR"
-  WriteRegStr HKLM "Software\Microsoft\Windows\CurrentVersion\Uninstall\MdNote" "UninstallString" '$"$INSTDIR\Uninstall.exe$"'
+  ; Single-quoted string, plain double quotes around the path (the canonical NSIS idiom).
+  WriteRegStr HKLM "Software\Microsoft\Windows\CurrentVersion\Uninstall\MdNote" "UninstallString" '"$INSTDIR\Uninstall.exe"'
   WriteRegDWORD HKLM "Software\Microsoft\Windows\CurrentVersion\Uninstall\MdNote" "NoModify" 1
   WriteRegDWORD HKLM "Software\Microsoft\Windows\CurrentVersion\Uninstall\MdNote" "NoRepair" 1
 SectionEnd
