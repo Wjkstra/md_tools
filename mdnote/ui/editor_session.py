@@ -304,8 +304,7 @@ class EditorSession(QWidget):
         else:
             args_js = ",".join(json.dumps(a, ensure_ascii=False) for a in args)
             script = f"App.{method}({args_js});"
-        guard = "typeof App !== 'undefined' && App.bridge && "
-        self.preview.page().runJavaScript(guard + "(() => {" + script + "})();")
+        self.preview.run_app_script(script)
 
     def format_text(self, before: str, after: str | None = None) -> None:
         after = before if after is None else after

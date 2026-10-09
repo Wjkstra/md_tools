@@ -382,14 +382,43 @@ class WebPreview(QWebEngineView):
     def __init__(self, doc: LiveDocument, get_doc_path=None, parent=None) -> None:
         super().__init__(parent)
         self._bridge = Bridge(doc, get_doc_path)
+        # App commands issued before the first page load (e.g. a jump right after
+        # opening a file) would be dropped by the "typeof App" guard; queue them.
+        self._app_ready = False
+        self._pending_app_scripts: list[str] = []
         channel = QWebChannel(self.page())
         channel.registerObject("bridge", self._bridge)
         self.page().setWebChannel(channel)
         url = QUrl.fromLocalFile(str(_WEB_DIR / "index.html"))
         self.setUrl(url)
+        self.page().loadStarted.connect(self._on_page_load_started)
+        self.page().loadFinished.connect(self._on_page_loaded)
         self.loadFinished.connect(lambda _ok: self.apply_prefs())
         # 拦截一切会让视图离开本应用页面的导航（外链已在页面层交系统浏览器）
         self.page().navigationRequested.connect(self._on_navigation)
+
+    def run_app_script(self, script_body: str) -> None:
+        """Run an ``App.*`` call now, or as soon as the page has initialized."""
+        command = "(() => {" + script_body + "})();"
+        if self._app_ready:
+            self.page().runJavaScript(command)
+        else:
+            self._pending_app_scripts.append(command)
+
+    def _on_page_load_started(self) -> None:
+        self._app_ready = False
+
+    def _on_page_loaded(self, ok: bool) -> None:
+        # app.js is a synchronous script, so App exists whenever load succeeded.
+        self._app_ready = bool(ok)
+        if not ok:
+            return
+        pending, self._pending_app_scripts = self._pending_app_scripts, []
+        for command in pending:
+            # Wait (in the page) for startup loads to settle before delivering.
+            self.page().runJavaScript(
+                "window.__mdnoteDeliver("
+                + json.dumps(command) + ");")
 
     def _on_navigation(self, request) -> None:
         # 链接点击在页面层已处理（外链 → 系统浏览器，锚点 → 页内滚动）。

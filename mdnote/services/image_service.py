@@ -83,6 +83,10 @@ def import_image(*, src_path: str | None = None, data_url: str | None = None,
         stem = Path((file_name or "").replace("\\", "/")).stem or f"image-{time.strftime('%Y%m%d%H%M%S')}"
     else:
         raise ValueError("import_image 需要 src_path 或 data_url")
+    # Expressing the reference must succeed before creating anything; on Windows
+    # relpath fails across drives, and a failure here must leave no folders behind.
+    if path_type != "absolute":
+        os.path.relpath(target_dir, doc_dir)
     target_dir.mkdir(parents=True, exist_ok=True)
     target = _write_unique(target_dir / f"{stem}{ext}", payload, source)
     try:

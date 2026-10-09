@@ -56,11 +56,17 @@ const App = {
       if (href) bridge.openExternal(href);
     });
     this.bindMedia();
+    // Startup commands queued by Python wait for this flag; the initial document
+    // load below must finish before any queued navigation is delivered.
+    this.startupComplete = false;
     const doc = document.getElementById("doc");
     doc.tabIndex = 0;
     doc.setAttribute("role", "document");
     doc.setAttribute("aria-label", "Markdown 文档编辑区");
-    bridge.loadBlocks((s) => { this.renderAll(JSON.parse(s)); this.focusEditor(); });
+    bridge.loadBlocks((s) => {
+      this.renderAll(JSON.parse(s)); this.focusEditor();
+      this.startupComplete = true;
+    });
   },
 
   // ---------------- 图片拖放 / 粘贴 ----------------
@@ -1271,6 +1277,21 @@ const App = {
     }
     this.scrollTypewriter();
   },
+};
+
+// Deliver a queued Python command only after the initial load settled (and no
+// loadDocument is in progress), so a startup render can no longer wipe it.
+window.__mdnoteDeliver = (command) => {
+  let tries = 0;
+  const timer = setInterval(() => {
+    tries += 1;
+    if (App.bridge && App.startupComplete && !App.pendingTransform) {
+      clearInterval(timer);
+      try { (new Function(command))(); } catch (error) { /* keep the page usable */ }
+    } else if (tries > 600) {
+      clearInterval(timer);
+    }
+  }, 16);
 };
 
 // QWebChannel 就绪后启动

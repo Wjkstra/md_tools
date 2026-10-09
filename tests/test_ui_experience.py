@@ -131,32 +131,24 @@ class UIExperienceTests(unittest.TestCase):
             target_file = Path(folder_name) / "emoji.md"
             target_file.write_text("😀\nTARGET", encoding="utf-8")
             window.open_file(str(target_file))
-            # Wait for the new tab's page to initialize before locating the line.
-            deadline = time.monotonic() + 6
-            ready = []
-            while time.monotonic() < deadline:
-                ready.clear()
-                window.current.preview.page().runJavaScript(
-                    "typeof App !== 'undefined' && App.blocks.length > 0",
-                    ready.append)
-                while not ready and time.monotonic() < deadline:
-                    self.app.processEvents(); time.sleep(.005)
-                if ready and ready[0]:
-                    break
-            self.assertTrue(ready and ready[0])
+            # Locate immediately, while the new tab's page may still be loading;
+            # the command must be queued and applied after App initializes.
             window.open_search_result(str(target_file), 2)
 
             def caret_offset():
                 values = []
                 window.current.preview.page().runJavaScript(
                     "(()=>{const el=document.activeElement;"
-                    "return JSON.stringify({"
-                    "text:el.textContent,"
-                    "offset:App.selectionOffsets(el)[0],"
-                    "expected:el.textContent.indexOf('TARGET')});})()",
+                    "if (!el.classList || !el.classList.contains('is-editing')) return null;"
+                    "const expected=el.textContent.indexOf('TARGET');"
+                    "const offset=App.selectionOffsets(el)[0];"
+                    # The queued command is delivered a tick after startup load;
+                    # keep waiting until it actually lands.
+                    "if (offset !== expected) return null;"
+                    "return JSON.stringify({text:el.textContent,offset,expected});})()",
                     values.append)
                 deadline = time.monotonic() + 3
-                while not values and time.monotonic() < deadline:
+                while len(values) < 1 and time.monotonic() < deadline:
                     self.app.processEvents(); time.sleep(.005)
                 return values[0] if values and values[0] else None
             result = json.loads(self._wait_value(caret_offset))
