@@ -1,4 +1,5 @@
 """Regressions for visible multi-tab, theme and find interactions."""
+import json
 import os
 import tempfile
 import unittest
@@ -124,6 +125,52 @@ class UIExperienceTests(unittest.TestCase):
                     self.app.processEvents()
                     time.sleep(.002)
                 self.assertEqual(window.findbar._feedback.text(), expected)
+
+    def test_emoji_prefix_line_location_keeps_utf16_offsets(self):
+        with self.window() as window, tempfile.TemporaryDirectory() as folder_name:
+            target_file = Path(folder_name) / "emoji.md"
+            target_file.write_text("😀\nTARGET", encoding="utf-8")
+            window.open_file(str(target_file))
+            # Wait for the new tab's page to initialize before locating the line.
+            deadline = time.monotonic() + 6
+            ready = []
+            while time.monotonic() < deadline:
+                ready.clear()
+                window.current.preview.page().runJavaScript(
+                    "typeof App !== 'undefined' && App.blocks.length > 0",
+                    ready.append)
+                while not ready and time.monotonic() < deadline:
+                    self.app.processEvents(); time.sleep(.005)
+                if ready and ready[0]:
+                    break
+            self.assertTrue(ready and ready[0])
+            window.open_search_result(str(target_file), 2)
+
+            def caret_offset():
+                values = []
+                window.current.preview.page().runJavaScript(
+                    "(()=>{const el=document.activeElement;"
+                    "return JSON.stringify({"
+                    "text:el.textContent,"
+                    "offset:App.selectionOffsets(el)[0],"
+                    "expected:el.textContent.indexOf('TARGET')});})()",
+                    values.append)
+                deadline = time.monotonic() + 3
+                while not values and time.monotonic() < deadline:
+                    self.app.processEvents(); time.sleep(.005)
+                return values[0] if values and values[0] else None
+            result = json.loads(self._wait_value(caret_offset))
+            self.assertEqual(result["offset"], result["expected"])
+            self.assertEqual(result["offset"], 3)  # 😀+\n are 2 UTF-16 units, not 2 code points + off-by-one
+
+    def _wait_value(self, read, seconds=8):
+        deadline = time.monotonic() + seconds
+        value = None
+        while time.monotonic() < deadline:
+            value = read()
+            if value is not None:
+                return value
+        self.fail("Timed out reading editor state")
 
     def test_broken_enabled_plugin_enters_recovery_instead_of_blocking_startup(self):
         broken = '''

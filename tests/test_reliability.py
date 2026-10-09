@@ -52,6 +52,26 @@ class ReliabilityTests(unittest.TestCase):
             self.assertEqual(search(folder, ""), [])
             self.assertEqual(search(folder, "hello", max_hits=0), [])
 
+    def test_single_block_commit_reuses_every_other_rendered_block(self):
+        from mdnote.editor.webview import LiveDocument
+
+        lines = []
+        for i in range(200):
+            lines.append(f"paragraph number {i} with text")
+            lines.append("")
+        doc = LiveDocument(lambda: None)
+        doc.set_text("\n".join(lines))
+        before = doc.payload()
+        changed = doc.commit(0, before[0]["raw"] + " appended change")
+        differing = [i for i in range(len(before))
+                     if (before[i]["raw"], before[i]["html"])
+                     != (changed[i]["raw"], changed[i]["html"])]
+        # Only the edited block (and any structurally shifted blocks) may change;
+        # every other rendered block must be reused from cache byte-for-byte.
+        self.assertEqual(differing, [0])
+        rendered_blocks = sum(1 for item in before if not item.get("trailing"))
+        self.assertEqual(len(doc._render_cache), rendered_blocks)
+
     def test_directory_alias_is_only_searched_once(self):
         with tempfile.TemporaryDirectory() as folder:
             root = Path(folder)
