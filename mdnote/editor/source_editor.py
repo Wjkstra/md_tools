@@ -1,12 +1,13 @@
 """源码模式编辑器：QPlainTextEdit + 行号区 + Markdown 高亮。"""
 
 from PySide6.QtCore import QRect, Qt, Signal, QSize
-from PySide6.QtGui import QColor, QFont, QPainter, QTextCursor
+from PySide6.QtGui import QColor, QFont, QPainter, QTextCursor, QPalette
 from PySide6.QtWidgets import QPlainTextEdit, QWidget
 
 from .md_highlighter import MarkdownHighlighter
+from ..core.settings import settings_service
 
-_PAIRED = {"[": "]", "`": "`", "*": "*", "~": "~"}
+_PAIRED = {"[": "]", "(": ")", "{": "}", "`": "`", "*": "*", "~": "~"}
 
 
 class LineNumberArea(QWidget):
@@ -29,23 +30,52 @@ class SourceEditor(QPlainTextEdit):
         self.setLineWrapMode(QPlainTextEdit.WidgetWidth)
         font = QFont(["Consolas", "JetBrains Mono", "Courier New"], 10)
         self.setFont(font)
+        self._gutter_bg = QColor("#f6f8fa")
+        self._gutter_fg = QColor("#8b949e")
         self._line_area = LineNumberArea(self)
         self.blockCountChanged.connect(self._update_line_area_width)
         self.updateRequest.connect(self._update_line_area)
         self._update_line_area_width()
         self._highlighter = MarkdownHighlighter(self.document())
         self.textChanged.connect(self.content_changed_detail.emit)
+        self.apply_prefs()
+
+    def apply_prefs(self) -> None:
+        settings = settings_service().current
+        self._tab_size = max(1, min(8, settings.tab_size))
+        self._auto_bracket = settings.auto_bracket
+        font = self.font()
+        font.setPixelSize(settings.font_size)
+        if font != self.font():
+            self.setFont(font)
+            self._update_line_area_width()
+        distance = self.fontMetrics().horizontalAdvance(" ") * self._tab_size
+        if self.tabStopDistance() != distance:
+            self.setTabStopDistance(distance)
+        self.apply_theme(settings.theme)
 
     def apply_theme(self, theme: str) -> None:
         """切换编辑器背景 / 前景与语法高亮调色板。"""
         from .md_highlighter import editor_colors_for, palette_for
 
         bg, fg = editor_colors_for(theme)
+        colors = palette_for(theme)
+        signature = (bg, fg, tuple(colors.items()))
+        if getattr(self, "_applied_theme", None) == signature:
+            return
+        self._applied_theme = signature
         palette = self.palette()
-        palette.setColor(self.backgroundRole(), QColor(bg))
-        palette.setColor(self.foregroundRole(), QColor(fg))
+        palette.setColor(QPalette.Base, QColor(bg))
+        palette.setColor(QPalette.Text, QColor(fg))
+        self._gutter_bg = QColor(bg).lighter(130) if QColor(bg).lightness() < 128 else QColor(bg).darker(104)
+        self._gutter_fg = QColor(palette_for(theme)["quote"])
+        self._line_area.update()
         self.setPalette(palette)
-        self._highlighter.set_palette(palette_for(theme))
+        accent = palette_for(theme)["link"]
+        self.setStyleSheet(f"QPlainTextEdit {{ background-color: {bg}; color: {fg}; "
+                          f"border: 0; selection-background-color: {accent}; "
+                          f"selection-color: {bg}; }}")
+        self._highlighter.set_palette(colors)
 
     # ---------------- 行号 ----------------
 
@@ -73,14 +103,14 @@ class SourceEditor(QPlainTextEdit):
 
     def paint_line_numbers(self, event) -> None:
         painter = QPainter(self._line_area)
-        painter.fillRect(event.rect(), QColor("#f6f8fa"))
+        painter.fillRect(event.rect(), self._gutter_bg)
         block = self.firstVisibleBlock()
         block_number = block.blockNumber()
         top = round(self.blockBoundingGeometry(block).translated(self.contentOffset()).top())
         bottom = top + round(self.blockBoundingRect(block).height())
         while block.isValid() and top <= event.rect().bottom():
             if block.isVisible() and bottom >= event.rect().top():
-                painter.setPen(QColor("#8b949e"))
+                painter.setPen(self._gutter_fg)
                 painter.drawText(
                     0,
                     top,
@@ -100,7 +130,7 @@ class SourceEditor(QPlainTextEdit):
         if event.key() == Qt.Key_Tab:
             cursor = self.textCursor()
             if not cursor.hasSelection():
-                cursor.insertText("  ")
+                cursor.insertText(" " * self._tab_size)
                 return
             self._indent_selection(cursor, True)
             return
@@ -108,14 +138,36 @@ class SourceEditor(QPlainTextEdit):
             self._indent_selection(self.textCursor(), False)
             return
         text = event.text()
-        if text and text in _PAIRED:
+        plain_key = not (event.modifiers() & (Qt.ControlModifier | Qt.AltModifier | Qt.MetaModifier))
+        if self._auto_bracket and plain_key:
             cursor = self.textCursor()
+            position = cursor.position()
             if not cursor.hasSelection():
-                super().keyPressEvent(event)
-                self.textCursor().insertText(_PAIRED[text])
-                # 光标移回配对符号之间
-                cursor = self.textCursor()
-                cursor.movePosition(QTextCursor.Left)
+                following = self.document().characterAt(position)
+                if text in ("]", ")", "}") and following == text:
+                    cursor.movePosition(QTextCursor.Right)
+                    self.setTextCursor(cursor)
+                    return
+                if event.key() == Qt.Key_Backspace and position > 0:
+                    preceding = self.document().characterAt(position - 1)
+                    if _PAIRED.get(preceding) == following:
+                        cursor.beginEditBlock()
+                        cursor.setPosition(position - 1)
+                        cursor.setPosition(position + 1, QTextCursor.KeepAnchor)
+                        cursor.removeSelectedText()
+                        cursor.endEditBlock()
+                        self.setTextCursor(cursor)
+                        return
+            if text in _PAIRED:
+                start = cursor.selectionStart()
+                selected = cursor.selectedText().replace("\u2029", "\n")
+                cursor.beginEditBlock()
+                cursor.insertText(text + selected + _PAIRED[text])
+                cursor.setPosition(start + 1)
+                if selected:
+                    cursor.setPosition(start + 1 + len(selected.encode("utf-16-le")) // 2,
+                                       QTextCursor.KeepAnchor)
+                cursor.endEditBlock()
                 self.setTextCursor(cursor)
                 return
         super().keyPressEvent(event)
@@ -130,7 +182,7 @@ class SourceEditor(QPlainTextEdit):
         block = first
         while block.isValid() and block.position() <= last.position():
             text = block.text()
-            remove = 1 if text.startswith("\t") else min(2, len(text) - len(text.lstrip(" ")))
+            remove = 1 if text.startswith("\t") else min(self._tab_size, len(text) - len(text.lstrip(" ")))
             changes.append((block.position(), remove))
             block = block.next()
         cursor.beginEditBlock()
@@ -139,8 +191,8 @@ class SourceEditor(QPlainTextEdit):
         for position, remove in reversed(changes):
             cursor.setPosition(position)
             if indent:
-                cursor.insertText("  ")
-                delta = 2
+                cursor.insertText(" " * self._tab_size)
+                delta = self._tab_size
             else:
                 cursor.setPosition(position + remove, QTextCursor.KeepAnchor)
                 cursor.removeSelectedText()
@@ -160,7 +212,7 @@ class SourceEditor(QPlainTextEdit):
         self.setPlainText(text)
         if offset is not None:
             cursor = self.textCursor()
-            cursor.setPosition(max(0, min(offset, len(text))))
+            cursor.setPosition(max(0, min(offset, self.document().characterCount() - 1)))
             self.setTextCursor(cursor)
 
     def get_text(self) -> str:
@@ -171,8 +223,10 @@ class SourceEditor(QPlainTextEdit):
 
     def goto_line(self, line: int) -> None:
         cursor = self.textCursor()
-        cursor.movePosition(QTextCursor.Start)
-        cursor.movePosition(QTextCursor.Down, n=max(0, line - 1))
+        block = self.document().findBlockByNumber(
+            max(0, min(line - 1, self.document().blockCount() - 1))
+        )
+        cursor.setPosition(block.position())
         self.setTextCursor(cursor)
         self.ensureCursorVisible()
         self.setFocus()

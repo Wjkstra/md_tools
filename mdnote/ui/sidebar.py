@@ -15,7 +15,7 @@ from PySide6.QtWidgets import (
     QWidget,
 )
 
-from ..services.search_service import start_search
+from ..services.search_service import SearchController
 
 
 class Sidebar(QWidget):
@@ -72,7 +72,9 @@ class Sidebar(QWidget):
         self._tabs.addTab(search_pane, "搜索")
 
         self._folder: str | None = None
-        self._search_thread = None
+        self._search = SearchController(self)
+        self._search.results.connect(self._on_search_done)
+        self._search_box.textChanged.connect(self._reset_search)
         self._search_box.installEventFilter(self)
         self._tree.installEventFilter(self)
         self._outline.installEventFilter(self)
@@ -80,6 +82,7 @@ class Sidebar(QWidget):
         self._tabs.tabBar().installEventFilter(self)
 
     def open_folder(self, folder: str) -> None:
+        self._reset_search()
         self._folder = folder
         idx = self._model.setRootPath(folder)
         self._tree.setRootIndex(idx)
@@ -109,6 +112,14 @@ class Sidebar(QWidget):
 
     # ---------------- 全文搜索 ----------------
 
+    def _reset_search(self) -> None:
+        self._search.cancel()
+        self._search_results.clear()
+        self._search_status.clear()
+
+    def shutdown_search(self) -> bool:
+        return self._search.shutdown()
+
     def _run_search(self) -> None:
         query = self._search_box.text().strip()
         if not query:
@@ -118,9 +129,7 @@ class Sidebar(QWidget):
             return
         self._search_results.clear()
         self._search_status.setText("搜索中…")
-        start_search(
-            self, self._folder, query, self._on_search_done
-        )
+        self._search.request(self._folder, query)
 
     def _on_search_done(self, payload) -> None:
         self._search_results.clear()

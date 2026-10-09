@@ -1,9 +1,11 @@
 """主窗口：多标签文档管理、菜单、侧边栏 / 查找 / 状态栏联动。"""
 
 from pathlib import Path
+from dataclasses import asdict
 
-from PySide6.QtCore import QFileSystemWatcher, Qt
+from PySide6.QtCore import QFileSystemWatcher, QTimer, Qt
 from PySide6.QtGui import QAction, QIcon, QKeySequence
+from shiboken6 import isValid
 from PySide6.QtWidgets import (
     QApplication,
     QFileDialog,
@@ -11,6 +13,7 @@ from PySide6.QtWidgets import (
     QMessageBox,
     QSplitter,
     QTabWidget,
+    QToolButton,
     QVBoxLayout,
     QWidget,
 )
@@ -25,6 +28,7 @@ from .editor_session import EditorSession
 from .findbar import FindBar
 from .sidebar import Sidebar
 from .statusbar import StatusBar
+from .theme import apply_shell_theme, configure_ui_font
 
 WELCOME = """# MdNote
 
@@ -42,13 +46,18 @@ WELCOME = """# MdNote
 class MainWindow(QMainWindow):
     def __init__(self) -> None:
         super().__init__()
+        configure_ui_font(self)
         self.setWindowTitle("MdNote")
         self.setWindowIcon(QIcon(str(config.icon_file())))
         self.resize(1280, 860)
 
         # 启动即按已启用插件配置渲染引擎（需在首次构建渲染负载之前）
         self._enabled_plugins = list(settings_service().current.enabled_plugins)
-        markdown_engine.reconfigure(self._enabled_plugins)
+        plugin_errors = markdown_engine.reconfigure(self._enabled_plugins)
+        self._manual_update_check = False
+        self._operation_message = ""
+        self._export_jobs = set()
+        self._closing = False
 
         # 自动更新（清单 URL：设置覆盖 > 内置默认）
         from .. import __version__
@@ -64,6 +73,13 @@ class MainWindow(QMainWindow):
         self.tabs = QTabWidget()
         self.tabs.setTabsClosable(True)
         self.tabs.setMovable(True)
+        self.tabs.setElideMode(Qt.ElideRight)
+        self._new_tab_button = QToolButton()
+        self._new_tab_button.setText("+")
+        self._new_tab_button.setToolTip("新建标签（Ctrl+T）")
+        self._new_tab_button.setAccessibleName("新建标签")
+        self._new_tab_button.clicked.connect(self.new_tab)
+        self.tabs.setCornerWidget(self._new_tab_button, Qt.TopRightCorner)
         self.tabs.tabCloseRequested.connect(self.close_tab)
         self.tabs.currentChanged.connect(self._on_tab_changed)
 
@@ -84,10 +100,13 @@ class MainWindow(QMainWindow):
         self.findbar = FindBar()
         self.findbar.find_next.connect(self.find_text)
         self.findbar.replace_one.connect(self.replace_text)
-        self.findbar.closed.connect(self.focus_editor)
+        self.findbar.closed.connect(self._close_find)
+        self.findbar.query_changed.connect(self._clear_find_highlights)
         self.statusbar = StatusBar()
+        self.statusbar.mode_requested.connect(self.toggle_mode)
 
         center = QWidget()
+        center.setObjectName("shellCenter")
         layout = QVBoxLayout(center)
         layout.setContentsMargins(0, 0, 0, 0)
         layout.setSpacing(0)
@@ -96,16 +115,21 @@ class MainWindow(QMainWindow):
         layout.addWidget(self.statusbar)
         self.setCentralWidget(center)
 
-        # 外部文件改动监视（跟随当前标签）
+        # 监视全部已打开文件；保存前仍检查磁盘版本。
         self._file_watcher = QFileSystemWatcher(self)
         self._file_watcher.fileChanged.connect(self._on_external_change)
 
+        apply_shell_theme(self, settings_service().current.theme)
         self._build_menus()
+        self._applied_settings = asdict(settings_service().current)
         settings_service().on_change(self._on_settings_changed)
 
         # 始终先创建一个初始标签（即使 _restore_session 被打桩也存在）
         self._initial_session = self.add_session(focus=True)
         self._restore_session()
+        if plugin_errors:
+            detail = "\n".join(f"• {name}: {message}" for name, message in plugin_errors)
+            QTimer.singleShot(0, self, lambda: self.alert(f"部分插件未能加载，其他功能可继续使用：\n{detail}"))
 
     # =========================================================
     #  标签管理
@@ -123,27 +147,62 @@ class MainWindow(QMainWindow):
         focus: bool = True,
     ) -> EditorSession:
         session = EditorSession(self)
+        session.apply_prefs()
         index = self.tabs.addTab(session, "无标题.md")
         if file_path:
             session.file_path = file_path
+            session._disk_text = text
             session.doc.doc_base = str(Path(file_path).parent)
         if text:
             session.load_text(text)
         session.set_dirty(False)
         if focus:
             self.tabs.setCurrentIndex(index)
+        self.request_status()
+        session.refresh_outline()
         return session
 
-    def open_file(self, path: str) -> None:
-        # 已在某标签打开 → 直接聚焦该标签
+    def _read_document(self, path: str) -> str | None:
+        try:
+            return Path(path).read_text(encoding="utf-8-sig")
+        except (OSError, UnicodeError) as exc:
+            self.alert(f"无法打开文件：{path}\n{exc}\n请检查文件是否存在、可读取，并使用 UTF-8 编码。")
+            return None
+
+    def open_file(self, path: str) -> EditorSession | None:
         existing = self._find_session_for_path(path)
         if existing is not None:
             self.tabs.setCurrentIndex(self.tabs.indexOf(existing))
-            return
-        text = Path(path).read_text(encoding="utf-8")
+            existing.focus_editor()
+            return existing
+        text = self._read_document(path)
+        if text is None:
+            return None
         session = self.add_session(text, file_path=path)
         self._arm_watcher(path)
         self._push_recent(path)
+        return session
+
+    def _push_recent(self, path: str) -> None:
+        target = str(Path(path).resolve())
+        recent = [p for p in settings_service().current.recent_files
+                  if Path(p).resolve() != Path(target)]
+        try:
+            settings_service().patch(last_file=target, recent_files=[target, *recent][:20])
+        except OSError as exc:
+            self.alert(f"文档操作已完成，但最近文件记录未能保存：{exc}")
+
+    def _refresh_recent_menu(self) -> None:
+        self._recent_menu.clear()
+        recent = settings_service().current.recent_files
+        if not recent:
+            item = self._recent_menu.addAction("暂无最近文件")
+            item.setEnabled(False)
+            return
+        for path in recent:
+            item = self._recent_menu.addAction(f"{Path(path).name} — {Path(path).parent}")
+            item.setToolTip(path)
+            item.triggered.connect(lambda checked=False, p=path: self.open_file(p))
 
     def _find_session_for_path(self, path: str) -> EditorSession | None:
         target = str(Path(path).resolve())
@@ -164,7 +223,9 @@ class MainWindow(QMainWindow):
             return
         if not session.dirty or self._discard_guard(session):
             self.tabs.removeTab(index)
+            session.autosave_timer.stop()
             session.deleteLater()
+            self._arm_watcher()
             # 没有标签时自动新建一个空白标签
             if self.tabs.count() == 0:
                 self.add_session()
@@ -183,18 +244,21 @@ class MainWindow(QMainWindow):
     # =========================================================
 
     def request_status(self) -> None:
+        for index in range(self.tabs.count()):
+            item = self.tabs.widget(index)
+            if isinstance(item, EditorSession):
+                self.tabs.setTabText(index, item.tab_title)
+                self.tabs.setTabToolTip(index, item.file_path or "未命名文档 · Ctrl+S 保存")
         session = self.current
-        # 更新当前标签标题
-        cur_index = self.tabs.currentIndex()
-        if session is not None and cur_index >= 0:
-            self.tabs.setTabText(cur_index, session.tab_title)
-            name = session.display_name
+        if session is not None:
             self.statusbar.update_state(
-                session.dirty, session.mode, session.stats, name
+                session.dirty, session.mode, session.stats,
+                session.file_path or session.display_name, bool(session.file_path),
             )
-            self.setWindowTitle(
-                f"{'* ' if session.dirty else ''}{name.replace('.md', '')}"
-            )
+            self.findbar.set_source_mode(session.mode == "source")
+            self.setWindowTitle(f"{'* ' if session.dirty else ''}{session.display_name} — MdNote")
+        if self._operation_message:
+            self.statusbar.show_message(self._operation_message)
 
     def set_outline(self, headings) -> None:
         self.sidebar.set_headings(headings)
@@ -216,19 +280,68 @@ class MainWindow(QMainWindow):
     # =========================================================
 
     def _on_settings_changed(self, s) -> None:
-        self.current and self.current.apply_prefs()
+        if not isValid(self):
+            return
+        values = asdict(s)
+        previous = self._applied_settings
+        changed = {key for key, value in values.items() if previous.get(key) != value}
+        self._applied_settings = values
+        if "theme" in changed:
+            apply_shell_theme(self, s.theme)
+        editor_prefs = {"theme", "font_size", "tab_size", "auto_bracket", "mermaid",
+                        "code_line_numbers", "focus_mode", "typewriter_mode", "smart_punctuation"}
+        if changed & editor_prefs:
+            for index in range(self.tabs.count()):
+                session = self.tabs.widget(index)
+                if isinstance(session, EditorSession):
+                    session.apply_prefs()
+        if "recent_files" in changed:
+            self._refresh_recent_menu()
+        if changed & {"update_url", "auto_check_updates"}:
+            self.updater.set_manifest_url(s.update_url or config.DEFAULT_MANIFEST_URL)
+            if hasattr(self, "_update_check_timer"):
+                self._update_check_timer.stop()
+            if s.auto_check_updates and self.updater._url:
+                self._update_check_timer.start(1500)
         enabled = list(s.enabled_plugins)
         if enabled != self._enabled_plugins:
             errors = markdown_engine.reconfigure(enabled)
             invalidate_render_cache()
             self._enabled_plugins = enabled
-            if self.current and self.current.mode == "live":
-                self.current.preview.reload_blocks(focus=False)
+            for index in range(self.tabs.count()):
+                session = self.tabs.widget(index)
+                if isinstance(session, EditorSession) and session.mode == "live":
+                    session.preview.reload_blocks(focus=False)
             if errors:
-                detail = "\n".join(
-                    f"• {name}: {msg}" for name, msg in errors
-                )
-                self.alert(f"部分插件未能加载：\n{detail}")
+                detail = "\n".join(f"• {name}: {msg}" for name, msg in errors)
+                self.alert(f"部分插件未能加载，其他功能可继续使用：\n{detail}")
+
+    def _patch_settings(self, **values) -> bool:
+        try:
+            settings_service().patch(**values)
+        except (OSError, ValueError) as exc:
+            self.alert(f"设置未能保存，原有配置仍保留：{exc}")
+            return False
+        return True
+
+    def resolve_save_conflict(self, session: EditorSession) -> str:
+        box = QMessageBox(self)
+        box.setWindowTitle("文件已被其他程序修改")
+        box.setText(f"「{session.display_name}」的磁盘版本已改变，本地修改仍保留。")
+        box.setInformativeText("另存为可保留两份内容；覆盖会替换外部版本。")
+        save_as = box.addButton("另存为", QMessageBox.AcceptRole)
+        overwrite = box.addButton("覆盖外部版本", QMessageBox.DestructiveRole)
+        box.addButton("取消", QMessageBox.RejectRole)
+        box.setDefaultButton(save_as)
+        box.exec()
+        clicked = box.clickedButton()
+        if clicked is save_as:
+            return "save_as"
+        return "overwrite" if clicked is overwrite else "cancel"
+
+    def _show_operation(self, message: str = "") -> None:
+        self._operation_message = message
+        self.request_status()
 
     # =========================================================
     #  菜单
@@ -256,6 +369,9 @@ class MainWindow(QMainWindow):
         m_file.addAction(action("新建标签", self.new_tab, "Ctrl+T"))
         m_file.addAction(action("打开…", self.open_dialog, "Ctrl+O"))
         m_file.addAction(action("打开文件夹…", self.open_folder_dialog, "Ctrl+Shift+O"))
+        self._recent_menu = m_file.addMenu("最近打开")
+        self._recent_menu.aboutToShow.connect(self._refresh_recent_menu)
+        self._refresh_recent_menu()
         m_file.addSeparator()
         m_file.addAction(action("保存", lambda: self.current and self.current.do_save(False), "Ctrl+S"))
         m_file.addAction(action("另存为…", lambda: self.current and self.current.do_save(True), "Ctrl+Shift+S"))
@@ -326,6 +442,7 @@ class MainWindow(QMainWindow):
         m_help.addAction(action("关于", lambda: self.alert(f"MdNote {_version()}")))
 
     def menu_commands(self):
+        self._refresh_recent_menu()
         def walk(menu, prefix=""):
             for act in menu.actions():
                 if act.isSeparator():
@@ -340,7 +457,7 @@ class MainWindow(QMainWindow):
     def open_commands(self) -> None:
         dialog = CommandPalette(self, self.menu_commands())
         dialog.exec()
-        if dialog.chosen:
+        if dialog.chosen and isValid(dialog.chosen):
             dialog.chosen.trigger()
         dialog.deleteLater()
 
@@ -363,7 +480,7 @@ class MainWindow(QMainWindow):
         if session.dirty and not self._discard_guard(session):
             return
         session.file_path = None
-        session.doc.doc_base = None
+        session.doc.doc_base = session._asset_temp.name
         self._arm_watcher(None)
         session.reset()
         session.set_dirty(False)
@@ -418,11 +535,35 @@ class MainWindow(QMainWindow):
         if session:
             session.select_document()
 
+    def _clear_find_highlights(self) -> None:
+        if self.current and self.current.mode == "live":
+            self.current.preview.page().runJavaScript(
+                "typeof App !== 'undefined' && App.clearDocumentFind()"
+            )
+
+    def _close_find(self) -> None:
+        self._clear_find_highlights()
+        self.focus_editor()
+
     def find_text(self, text, forward) -> None:
-        self.current and self.current.find_text(text, forward)
+        session = self.current
+        token = self.findbar.begin_search()
+        if session and text:
+            def report(found, wrapped=""):
+                if isValid(self) and isValid(session) and self.current is session:
+                    self.findbar.show_result(token, found, wrapped)
+            session.find_text(text, forward, report)
 
     def replace_text(self, find, replacement) -> None:
-        self.current and self.current.replace_text(find, replacement)
+        session = self.current
+        if session and find:
+            self.findbar.reset_feedback()
+            def report(found, wrapped=""):
+                if isValid(self) and isValid(session) and self.current is session:
+                    token = self.findbar.begin_search()
+                    self.findbar.show_result(token, found, wrapped)
+            session.replace_text(find, replacement, report)
+
 
     def jump_heading(self, block_index) -> None:
         self.current and self.current.jump_heading(block_index)
@@ -430,8 +571,9 @@ class MainWindow(QMainWindow):
     def open_search_result(self, path: str, line: int) -> None:
         session = self._find_session_for_path(path)
         if session is None:
-            self.open_file(path)
-            session = self.current
+            session = self.open_file(path)
+            if session is None:
+                return
         else:
             self.tabs.setCurrentIndex(self.tabs.indexOf(session))
         # 打开后定位到目标行（源码模式按行跳转；渲染模式定位块）
@@ -443,18 +585,16 @@ class MainWindow(QMainWindow):
 
     def _locate_line_in_live(self, session: EditorSession, path: str, line: int) -> None:
         """渲染后模式：按文件行号算出字符偏移，定位到所在块并滚动。"""
-        from ..editor.block_model import find_block_index
+        from ..editor.block_model import build_model, find_block_index
 
-        try:
-            text = Path(path).read_text(encoding="utf-8")
-        except OSError:
-            return
+        text = session.current_text()
         lines = text.splitlines(keepends=True)
         char_offset = sum(len(l) for l in lines[: line - 1])
-        idx = find_block_index(session.doc.model, char_offset)
+        model = build_model(text)
+        idx = find_block_index(model, char_offset)
         # 块内行偏移（传给页面以放置光标）
-        block = session.doc.model.blocks[idx]
-        in_block = char_offset - block.start
+        block = model.blocks[idx]
+        in_block = len(block.raw[:char_offset - block.start].encode("utf-16-le")) // 2
         session.editor_command("jumpToLine", idx, in_block)
 
     def open_folder_dialog(self) -> None:
@@ -462,9 +602,7 @@ class MainWindow(QMainWindow):
         if folder:
             self.sidebar.open_folder(folder)
             self.sidebar.show()
-            settings_service().patch(
-                last_folder=folder, sidebar_visible=True, sidebar_tab="files"
-            )
+            self._patch_settings(last_folder=folder, sidebar_visible=True, sidebar_tab="files")
 
     def toggle_sidebar(self) -> None:
         if self.sidebar.isVisible():
@@ -476,13 +614,11 @@ class MainWindow(QMainWindow):
 
     def toggle_focus(self) -> None:
         s = settings_service().current
-        settings_service().patch(focus_mode=not s.focus_mode)
-        self.current and self.current.apply_prefs()
+        self._patch_settings(focus_mode=not s.focus_mode)
 
     def toggle_typewriter(self) -> None:
         s = settings_service().current
-        settings_service().patch(typewriter_mode=not s.typewriter_mode)
-        self.current and self.current.apply_prefs()
+        self._patch_settings(typewriter_mode=not s.typewriter_mode)
 
     # =========================================================
     #  导出
@@ -491,38 +627,84 @@ class MainWindow(QMainWindow):
     def _current_text(self) -> str:
         return self.current.current_text() if self.current else ""
 
+    def _export_base(self) -> str | None:
+        return self.current.doc.doc_base if self.current else None
+
+    def _export_busy(self) -> bool:
+        if self._export_jobs:
+            self.alert("已有导出任务正在进行，请等待完成。")
+            return True
+        return False
+
+    def _track_export(self, job, path: str) -> None:
+        self._export_jobs.add(job)
+        self._show_operation("正在导出…")
+        def finished(ok: bool, error: str):
+            self._export_jobs.discard(job)
+            if not isValid(self) or self._closing:
+                return
+            self._show_operation(f"已导出：{Path(path).name}" if ok else "")
+            if not ok:
+                self.alert(f"导出失败：{error or '未能生成文件'}")
+        job.finished.connect(finished)
+
     def export_html(self) -> None:
+        if self._export_busy():
+            return
         path, _ = QFileDialog.getSaveFileName(self, "导出 HTML", "export.html", "HTML (*.html)")
         if path:
-            exporter.export_html(path, self._current_text())
+            try:
+                exporter.export_html(path, self._current_text(), doc_base=self._export_base())
+            except (OSError, ValueError) as exc:
+                self.alert(f"导出失败：{exc}")
+            else:
+                self._show_operation(f"已导出：{Path(path).name}")
 
     def export_pdf(self) -> None:
-        path, _ = QFileDialog.getSaveFileName(self, "导出 PDF", "export.pdf", "PDF (*.pdf)")
-        if not path:
+        if self._export_busy():
             return
-        if self.current and self.current.mode == "live":
-            exporter.export_pdf(self.current.preview.page(), path)
-        else:
-            self.alert("请在渲染后模式下导出 PDF")
+        path, _ = QFileDialog.getSaveFileName(self, "导出 PDF", "export.pdf", "PDF (*.pdf)")
+        if path:
+            try:
+                job = exporter.export_pdf(self._current_text(), path,
+                                          doc_base=self._export_base(), parent=self)
+                self._track_export(job, path)
+            except (OSError, ValueError) as exc:
+                self.alert(f"导出失败：{exc}")
 
     def export_image_file(self, fmt) -> None:
+        if self._export_busy():
+            return
         ext = "png" if fmt == "PNG" else "jpg"
         path, _ = QFileDialog.getSaveFileName(
             self, f"导出 {fmt}", f"export.{ext}", f"{fmt} (*.{ext})"
         )
-        if not path:
-            return
-        standalone = exporter.build_standalone_html(self._current_text())
-        if not exporter.export_image(standalone, path, fmt):
-            self.alert("图片导出失败")
+        if path:
+            try:
+                standalone = exporter.build_standalone_html(
+                    self._current_text(), doc_base=self._export_base()
+                )
+                self._track_export(exporter.export_image(standalone, path, fmt, parent=self), path)
+            except (OSError, ValueError) as exc:
+                self.alert(f"导出失败：{exc}")
 
     def export_pandoc(self, fmt) -> None:
+        if self._export_busy():
+            return
         if not exporter.pandoc_available():
             self.alert("未检测到 Pandoc：https://pandoc.org/installing.html")
             return
-        ok, err = exporter.pandoc_export(self._current_text(), fmt)
-        if not ok:
-            self.alert(f"导出失败：{err}")
+        ext = "tex" if fmt == "latex" else fmt
+        path, _ = QFileDialog.getSaveFileName(
+            self, f"导出 {fmt.upper()}", f"export.{ext}", f"{fmt.upper()} (*.{ext})"
+        )
+        if path:
+            try:
+                job = exporter.pandoc_export(self._current_text(), fmt, path,
+                                            doc_base=self._export_base(), parent=self)
+                self._track_export(job, path)
+            except (OSError, ValueError) as exc:
+                self.alert(f"导出失败：{exc}")
 
     # =========================================================
     #  自动更新
@@ -531,28 +713,44 @@ class MainWindow(QMainWindow):
     def _wire_updater(self) -> None:
         self.updater.update_available.connect(self._on_update_available)
         self.updater.check_failed.connect(
-            lambda msg: self.alert(f"检查更新失败：{msg}")
+            lambda msg: self._on_update_error("检查更新", msg)
         )
         self.updater.download_progress.connect(self._on_download_progress)
         self.updater.download_finished.connect(self._on_download_finished)
         self.updater.download_failed.connect(
-            lambda msg: self.alert(f"更新失败：{msg}")
+            lambda msg: self._on_update_error("更新", msg)
         )
-        # 启动后短暂延迟，后台静默检查
+        self.updater.check_finished.connect(self._on_check_finished)
+        self._update_check_timer = QTimer(self)
+        self._update_check_timer.setSingleShot(True)
+        self._update_check_timer.timeout.connect(lambda: self.updater.check(silent=True))
         if settings_service().current.auto_check_updates and self.updater._url:
-            QTimer.singleShot(1500, lambda: self.updater.check(silent=True))
+            self._update_check_timer.start(1500)
 
     def check_for_updates(self) -> None:
         if not self.updater._url:
-            self.alert(
-                "尚未配置更新源。请在「设置 → 更新」中填写更新清单 URL，"
-                "或让开发者在程序内置发布地址。"
-            )
+            self.alert("尚未配置更新源，请在设置中填写 HTTPS 更新清单地址。")
             return
-        self.statusbar and self.statusbar.update_state(
-            self._dirty, self._mode, self._stats, "正在检查更新…"
-        )
+        if self.updater.busy or self.updater.checking:
+            self.alert("更新任务正在进行，请稍后再试。")
+            return
+        self._manual_update_check = True
+        self._show_operation("正在检查更新…")
         self.updater.check(silent=False)
+
+    def _on_check_finished(self, newer: bool) -> None:
+        manual, self._manual_update_check = self._manual_update_check, False
+        if self.updater.busy:
+            self._show_operation("正在下载更新…")
+        elif manual:
+            self._show_operation("发现新版本" if newer else "当前已是最新版本")
+
+    def _on_update_error(self, action: str, message: str) -> None:
+        if self._closing:
+            return
+        self._manual_update_check = False
+        self._show_operation()
+        self.alert(f"{action}失败：{message}")
 
     def _on_update_available(self, release) -> None:
         required = self.updater.required()
@@ -577,65 +775,80 @@ class MainWindow(QMainWindow):
             self.updater.download()
 
     def _on_download_progress(self, percent: int) -> None:
-        self.statusbar.update_state(
-            self._dirty, self._mode, self._stats,
-            f"正在下载更新… {percent}%",
-        )
+        self._show_operation(f"正在下载更新… {percent}%")
 
     def _on_download_finished(self, path: str) -> None:
-        import subprocess
         import sys
+        from ..services.installer_service import launch_installer
 
-        # 下载完成：启动安装程序。NSIS 安装包会处理覆盖升级，
-        # 传 /S 静默安装到原目录（若用户想交互，可不带参数）。
-        try:
-            if getattr(sys, "frozen", False):
-                # 已安装：静默升级（安装包会关闭运行中的实例）
-                subprocess.Popen([path, "/S"])
-            else:
-                # 开发环境：直接弹出安装向导
-                subprocess.Popen([path])
-        except OSError as e:
-            self.alert(f"无法启动安装程序：{e}")
+        self._show_operation("更新安装包已校验")
+        installed = bool(getattr(sys, "frozen", False))
+        if installed and not self.close():
+            self.alert(f"安装包已准备好，请保存并退出后运行：\n{path}")
             return
-        self.alert(
-            "安装包已准备好，即将启动安装程序。\n"
-            "如安装向导没有自动出现，请重新打开：\n" + path
-        )
+        try:
+            launch_installer(path)
+        except (OSError, ValueError) as exc:
+            self.alert(f"无法启动安装程序：{exc}\n可稍后手动打开：\n{path}")
 
     # =========================================================
     #  外部文件改动
     # =========================================================
 
-    def _arm_watcher(self, path: str | None) -> None:
-        watched = self._file_watcher.files()
-        if watched:
-            self._file_watcher.removePaths(watched)
-        if path:
-            self._file_watcher.addPath(path)
+    def _arm_watcher(self, path: str | None = None) -> None:
+        desired = {
+            str(Path(session.file_path).resolve())
+            for index in range(self.tabs.count())
+            if isinstance(session := self.tabs.widget(index), EditorSession)
+            and session.file_path and Path(session.file_path).exists()
+        }
+        watched = set(self._file_watcher.files())
+        if stale := watched - desired:
+            self._file_watcher.removePaths(list(stale))
+        if missing := desired - watched:
+            self._file_watcher.addPaths(list(missing))
 
     def _on_tab_changed(self, _index) -> None:
         session = self.current
-        self._arm_watcher(session.file_path if session else None)
+        self._arm_watcher()
         self.request_status()
+        self.findbar.reset_feedback()
+        self._clear_find_highlights()
+        if session:
+            if session.file_path:
+                self._on_external_change(session.file_path, force=True)
+            session.refresh_outline()
 
-    def _on_external_change(self, path: str) -> None:
-        session = self.current
-        # 某些编辑器保存=替换文件，监视会丢失，重新挂接
-        if path and not self._file_watcher.files():
-            self._file_watcher.addPath(path)
-        if not session or path != session.file_path:
+    def _on_external_change(self, path: str, force: bool = False) -> None:
+        session = self._find_session_for_path(path)
+        # Atomic replacement can remove one watcher even while other files remain watched.
+        self._arm_watcher()
+        if not session:
             return
         try:
-            disk = Path(path).read_text(encoding="utf-8")
-        except OSError:
+            disk = Path(path).read_text(encoding="utf-8-sig")
+        except (OSError, UnicodeError):
+            return
+        if disk == session._disk_text:
             return
         if disk == session.current_text():
+            session._disk_text = disk
+            session._external_notice = None
+            session.set_dirty(False)
             return
-        if session.dirty and not self.confirm(
-            "文件已被其他程序修改，是否重新载入？（未保存的修改将丢失）"
-        ):
-            return
+        if session is not self.current:
+            return  # Recheck on activation; autosave independently checks its disk version.
+        if session.dirty:
+            if session._external_notice == disk and not force:
+                return
+            session._external_notice = disk
+            if not self.confirm("文件已被其他程序修改，是否重新载入？（未保存的修改将丢失）"):
+                # Not acknowledged: a later activation must be able to recheck.
+                session._external_notice = None
+                return  # Do not acknowledge a disk version we have chosen not to load.
+        session._disk_text = disk
+        session._external_notice = None
+        session._autosave_error_token = None
         session.load_text(disk)
         session.set_dirty(False)
 
@@ -648,15 +861,13 @@ class MainWindow(QMainWindow):
         box.setWindowTitle("MdNote")
         box.setText(f"「{session.display_name}」尚未保存")
         save_b = box.addButton("保存", QMessageBox.AcceptRole)
-        box.addButton("不保存", QMessageBox.DestructiveRole)
+        discard_b = box.addButton("不保存", QMessageBox.DestructiveRole)
         cancel_b = box.addButton("取消", QMessageBox.RejectRole)
         box.exec()
         clicked = box.clickedButton()
-        if clicked is cancel_b:
-            return False
         if clicked is save_b:
             return session.do_save(False)
-        return True
+        return clicked is discard_b
 
     def _restore_session(self) -> None:
         svc = settings_service()
@@ -665,13 +876,18 @@ class MainWindow(QMainWindow):
         # 内容装载进 __init__ 已创建的初始标签，避免多出一个空标签
         session = self._initial_session
         if s.last_file and Path(s.last_file).exists():
-            text = Path(s.last_file).read_text(encoding="utf-8")
-            session.file_path = s.last_file
-            session.doc.doc_base = str(Path(s.last_file).parent)
-            session.load_text(text)
-            session.set_dirty(False)
-            self._arm_watcher(s.last_file)
-            self._push_recent(s.last_file)
+            text = self._read_document(s.last_file)
+            if text is not None:
+                session.file_path = s.last_file
+                session._disk_text = text
+                session.doc.doc_base = str(Path(s.last_file).parent)
+                session.load_text(text)
+                session.set_dirty(False)
+                self._arm_watcher(s.last_file)
+                self._push_recent(s.last_file)
+            else:
+                session.load_text(WELCOME)
+                session.set_dirty(False)
         else:
             session.load_text(WELCOME)
             session.set_dirty(False)
@@ -690,17 +906,17 @@ class MainWindow(QMainWindow):
             and self.tabs.widget(i).dirty
         ]
         if not dirty_sessions:
-            event.accept()
+            self._finish_close(event)
             return
         box = QMessageBox(self)
         box.setWindowTitle("MdNote")
         box.setText(f"有 {len(dirty_sessions)} 个文档尚未保存")
         save_b = box.addButton("全部保存", QMessageBox.AcceptRole)
-        box.addButton("全部不保存", QMessageBox.DestructiveRole)
+        discard_b = box.addButton("全部不保存", QMessageBox.DestructiveRole)
         cancel_b = box.addButton("取消", QMessageBox.RejectRole)
         box.exec()
         clicked = box.clickedButton()
-        if clicked is cancel_b:
+        if clicked is not save_b and clicked is not discard_b:
             event.ignore()
         elif clicked is save_b:
             # 任一文档保存被取消（如另存为）则不退出
@@ -710,6 +926,22 @@ class MainWindow(QMainWindow):
                 event.ignore()
         else:
             event.accept()
+
+        if event.isAccepted():
+            self._finish_close(event)
+
+    def _finish_close(self, event) -> None:
+        if self.sidebar.shutdown_search():
+            self._closing = True
+            self._update_check_timer.stop()
+            self.updater.shutdown()
+            for job in tuple(self._export_jobs):
+                job.cancel()
+            settings_service().off_change(self._on_settings_changed)
+            event.accept()
+        else:
+            event.ignore()
+            self.alert("搜索任务正在取消，请稍后再次关闭窗口。")
 
     # ---- 兼容旧集成测试的属性 / 方法（指向当前标签） ----
 

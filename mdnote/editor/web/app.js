@@ -41,9 +41,17 @@ const App = {
     // 链接：页内锚点（#id / TOC）就地滚动；其余（外部网址）交系统浏览器
     document.addEventListener("click", (e) => {
       const a = e.target.closest("a");
-      if (!a || a.classList.contains("toc-link")) return;
+      if (!a) return;
+      if (a.classList.contains("toc-link")) {
+        e.preventDefault(); this.jumpToId(a.dataset.tocId); return;
+      }
       const href = a.getAttribute("href");
-      if (href && href.charAt(0) === "#") return; // 页内锚点，默认滚动
+      if (href && href.charAt(0) === "#") {
+        e.preventDefault();
+        try { this.jumpToId(decodeURIComponent(href.slice(1))); }
+        catch { this.jumpToId(href.slice(1)); }
+        return;
+      }
       e.preventDefault();
       if (href) bridge.openExternal(href);
     });
@@ -128,6 +136,7 @@ const App = {
   attachTableEditor(blockEl, index, target) {
     const table = blockEl.querySelector("table");
     if (!table) return;
+    this.rememberTableSource(table, index);
       for (const cell of table.querySelectorAll("th,td")) {
         if (cell.dataset.bound) continue;
         cell.dataset.bound = "1";
@@ -241,9 +250,90 @@ const App = {
   submitTable(table, index) {
     if (this.pendingTransform) { this.pendingInput.push(() => this.submitTable(table, index)); return; }
     if (!table.isConnected) return;
+    const signature = this.tableSignature(table);
+    if (signature === table._markdownSignature) return;
     const md = this.tableToMarkdown(table);
+    table._markdownSignature = signature;
     if (this.blocks[index].raw === md) return;
     this.runBridge("updateTable", [index, md], (blocks) => { this.blocks = blocks; });
+  },
+
+  // Rendered cells retain their original Markdown until their text changes.
+  splitTableRow(line) {
+    let text = line.trim();
+    if (text.startsWith("|")) text = text.slice(1);
+    let slashes = 0;
+    for (let i = text.length - 2; i >= 0 && text[i] === "\\"; i--) slashes++;
+    if (text.endsWith("|") && slashes % 2 === 0) text = text.slice(0, -1);
+    const cells = [];
+    let start = 0, ticks = 0;
+    for (let i = 0; i < text.length; i++) {
+      if (text[i] === "\\") { i++; continue; }
+      if (text[i] === "`") {
+        let end = i;
+        while (text[end] === "`") end++;
+        const run = end - i;
+        if (!ticks && text.indexOf("`".repeat(run), end) >= 0) ticks = run;
+        else if (ticks === run) ticks = 0;
+        i = end - 1;
+      } else if (text[i] === "|" && !ticks) {
+        cells.push(text.slice(start, i).trim()); start = i + 1;
+      }
+    }
+    cells.push(text.slice(start).trim());
+    return cells;
+  },
+
+  tableSignature(table) {
+    return JSON.stringify([...table.querySelectorAll("tr")].map(row =>
+      [...row.querySelectorAll("th,td")].map(cell =>
+        [cell.textContent, cell.style.textAlign || cell.getAttribute("align") || ""])));
+  },
+
+  rememberTableSource(table, index) {
+    if (table._markdownSignature !== undefined) return;
+    const lines = this.blocks[index].raw.split("\n");
+    const rows = [...table.querySelectorAll("tr")];
+    for (let r = 0; r < rows.length; r++) {
+      const raw = this.splitTableRow(lines[r === 0 ? 0 : r + 1] || "");
+      [...rows[r].querySelectorAll("th,td")].forEach((cell, c) => {
+        cell._markdownSource = {raw:raw[c] || "", text:cell.textContent};
+      });
+    }
+    table._markdownSignature = this.tableSignature(table);
+  },
+
+  // Serialize an edited cell back to inline Markdown. contentEditable keeps the
+  // rendered inline elements intact, so a DOM walk preserves links/emphasis/code.
+  cellToMarkdown(node) {
+    const walk = (child, index = 0) => {
+      if (child.nodeType === 3) // Node.TEXT_NODE
+        return child.nodeValue.replace(/\|/g, "\\|");
+      if (child.nodeType !== 1) return ""; // Node.ELEMENT_NODE
+      const tag = child.tagName;
+      const inner = Array.from(child.childNodes || []).map(grand => walk(grand)).join("");
+      switch (tag) {
+        case "STRONG": case "B": return `**${inner}**`;
+        case "EM": case "I": return `*${inner}*`;
+        case "CODE": return `\`${inner}\``;
+        case "S": case "DEL": return `~~${inner}~~`;
+        case "A": {
+          const href = child.getAttribute("href") || "";
+          return href ? `[${inner}](${href})` : inner;
+        }
+        case "IMG": {
+          const src = child.getAttribute("src") || "";
+          const alt = child.getAttribute("alt") || "";
+          return src ? `![${alt}](${src})` : inner;
+        }
+        case "BR": return "<br>";
+        case "DIV": case "P":
+          // Block-level soft wrap inside a cell; no leading break for the first child.
+          return (index > 0 ? "<br>" : "") + inner;
+        default: return inner;
+      }
+    };
+    return Array.from(node.childNodes || []).map((child, i) => walk(child, i)).join("");
   },
 
   tableToMarkdown(table) {
@@ -251,7 +341,10 @@ const App = {
     const lines = rows.map((tr) => {
       const cells = [...tr.querySelectorAll("th,td")];
       const parts = cells.map((c) => {
-        const t = c.textContent.replace(/\|/g, "\\|").trim();
+        const source = c._markdownSource;
+        if (source && source.text === c.textContent) return source.raw || " ";
+        const t = this.cellToMarkdown(c).replace(/\r?\n/g, "<br>").trim();
+        c._markdownSource = {raw:t, text:c.textContent};
         return t === "" ? " " : t;
       });
       return "| " + parts.join(" | ") + " |";
@@ -379,20 +472,64 @@ const App = {
   },
 
   postProcessBlock(el) {
-    if (window.katex) this.renderMathIn(el);
-    const mermaidCode = el.querySelector("code.language-mermaid");
-    if (mermaidCode) {
-      const host = document.createElement("div");
-      host.className = "mermaid";
-      host.textContent = mermaidCode.textContent;
-      (mermaidCode.closest(".codehilite") || mermaidCode).replaceWith(host);
-      if (window.mermaid) {
+    if (el.classList.contains("is-editing")) return;
+    const b = this.blocks[Number(el.dataset.index)];
+    if (b && b.type === "code") {
+      const signature = String(window.__mermaid !== false) + ":" + String(window.__codeLineNumbers !== false);
+      if (el.dataset.renderPrefs === signature) return;
+      el.dataset.renderPrefs = signature;
+      const lines = b.raw.split("\n");
+      const fence = lines[0].match(/^\s{0,3}([`~]{3,})\s*mermaid(?:\s|$)/i);
+      if (fence && window.__mermaid !== false && window.mermaid) {
+        const end = lines[lines.length - 1].trim();
+        const closed = end.length >= fence[1].length && [...end].every(c => c === fence[1][0]);
+        const host = document.createElement("div");
+        host.className = "mermaid";
+        host.textContent = lines.slice(1, closed ? -1 : undefined).join("\n");
+        el.replaceChildren(host);
         try {
-          window.mermaid.initialize({ startOnLoad: false, securityLevel: "strict", theme: "neutral" });
-          window.mermaid.run({ nodes: [host] });
-        } catch (e) { /* ignore */ }
-      }
+          window.mermaid.initialize({startOnLoad:false, securityLevel:"strict", theme:"neutral"});
+          const result = window.mermaid.run({nodes:[host]});
+          if (result && result.catch) result.catch(() => {});
+        } catch (e) { /* Keep Mermaid's error content visible. */ }
+      } else this.applyCodeLineNumbers(el);
     }
+    if (window.katex) this.renderMathIn(el);
+  },
+
+  applyCodeLineNumbers(el) {
+    for (const pre of el.querySelectorAll("pre")) {
+      for (const gutter of pre.querySelectorAll(".code-line-gutter")) gutter.remove();
+      pre.classList.toggle("code-with-lines", window.__codeLineNumbers !== false);
+      if (window.__codeLineNumbers === false) continue;
+      let code = pre.querySelector("code,.code-text");
+      if (!code) {
+        code = document.createElement("span"); code.className = "code-text";
+        while (pre.firstChild) code.appendChild(pre.firstChild);
+        pre.appendChild(code);
+      }
+      const count = code.textContent.replace(/\n$/, "").split("\n").length;
+      const gutter = document.createElement("span");
+      gutter.className = "code-line-gutter";
+      gutter.setAttribute("aria-hidden", "true");
+      gutter.textContent = Array.from({length:count}, (_, i) => i + 1).join("\n");
+      pre.prepend(gutter);
+    }
+  },
+
+  applyRenderPrefs() {
+    for (const b of this.blocks) {
+      if (b.type !== "code" || b.index === this.editingIndex) continue;
+      const el = document.querySelector(`.block[data-index="${b.index}"]`);
+      if (!el || el.classList.contains("block-placeholder")) continue;
+      const signature = String(window.__mermaid !== false) + ":" + String(window.__codeLineNumbers !== false);
+      if (el.dataset.renderPrefs === signature) continue;
+      el.innerHTML = b.html;
+      delete el.dataset.renderPrefs;
+      this.postProcessBlock(el);
+      this.measuredHeights.delete(b.index);
+    }
+    this.scheduleViewportUpdate();
   },
 
   renderAll(blocks) {
@@ -434,37 +571,7 @@ const App = {
   },
 
   postProcess() {
-    // TOC 链接：滚动到对应标题
-    for (const link of document.querySelectorAll(".toc-link")) {
-      if (link.dataset.bound) continue;
-      link.dataset.bound = "1";
-      link.addEventListener("click", () => {
-        const el = document.getElementById(link.dataset.tocId);
-        if (el) el.scrollIntoView({ behavior: "smooth", block: "start" });
-      });
-    }
-    for (const code of document.querySelectorAll("code.language-mermaid")) {
-      const host = document.createElement("div");
-      host.className = "mermaid";
-      host.textContent = code.textContent;
-      const wrap = code.closest(".codehilite") || code;
-      wrap.replaceWith(host);
-    }
-    const nodes = document.querySelectorAll(".mermaid");
-    if (nodes.length && window.mermaid) {
-      try {
-        window.mermaid.initialize({ startOnLoad: false, securityLevel: "strict", theme: "neutral" });
-        window.mermaid.run({ nodes });
-      } catch (e) {
-        /* Mermaid 初始化失败：忽略，保持原始文本 */
-      }
-    }
-    if (window.katex) {
-      for (const block of document.querySelectorAll(".block")) {
-        if (block.classList.contains("is-editing")) continue;
-        this.renderMathIn(block);
-      }
-    }
+    for (const block of document.querySelectorAll(".block")) this.postProcessBlock(block);
   },
 
   renderMathIn(root) {
@@ -512,8 +619,10 @@ const App = {
       e.preventDefault();
       const index = clickedBlock ? Number(clickedBlock.dataset.index) : null;
       const x = e.clientX, y = e.clientY;
+      const task = target.matches("input.task-checkbox");
+      const taskIndex = clickedBlock ? [...clickedBlock.querySelectorAll("input.task-checkbox")].indexOf(target) : 0;
       this.pendingInput.push(() => this.switchTo(index === null ? this.blocks.length - 1 :
-        Math.min(index, this.blocks.length - 1), {point:{x,y}}));
+        Math.min(index, this.blocks.length - 1), {point:{x,y}, task, taskIndex}));
       return;
     }
     // A single click in document padding continues writing at the end.
@@ -529,7 +638,8 @@ const App = {
     const cell = target.closest("th,td");
     this.switchTo(idx, {point:{x:e.clientX,y:e.clientY},
       cell:cell ? [...clickedBlock.querySelectorAll("th,td")].indexOf(cell) : 0,
-      task:target.matches("input.task-checkbox")});
+      task:target.matches("input.task-checkbox"),
+      taskIndex:[...clickedBlock.querySelectorAll("input.task-checkbox")].indexOf(target)});
   },
 
   // Every transition shares one queue: navigation never races a commit/transform.
@@ -570,7 +680,7 @@ const App = {
       const block = document.querySelector(`.block[data-index="${idx}"]`);
       if (!block) return;
       if (options.task) {
-        this.runBridge("toggleTask", [idx], (blocks) => {
+        this.runBridge("toggleTask", [idx, options.taskIndex || 0], (blocks) => {
           this.renderAll(blocks); this.focusBlock(idx);
         });
       } else if (this.blocks[idx].type === "table" && !options.raw) {
@@ -660,6 +770,145 @@ const App = {
     });
   },
 
+  // Search the whole model, including blocks not currently mounted in the DOM.
+  literalFindPattern(text) {
+    const special = "\\^$.*+?()[]{}|";
+    const escaped = [...text].map(c => special.includes(c) ? "\\" + c : c).join("");
+    return new RegExp(escaped, "giu");
+  },
+
+  collectDocumentMatches(text) {
+    const matches = [], texts = [];
+    if (!text) return {matches, texts};
+    const pattern = this.literalFindPattern(text);
+    for (const b of this.blocks) {
+      let visible;
+      const editing = b.index === this.editingIndex && document.querySelector(".is-editing");
+      const mounted = document.querySelector(`.block[data-index="${b.index}"]`);
+      const cell = mounted && mounted.querySelector("td[contenteditable=true],th[contenteditable=true]");
+      if (editing) visible = editing.textContent;
+      else if (cell) visible = mounted.textContent;
+      else {
+        if (b._searchHtml !== b.html) {
+          const node = document.createElement("div"); node.innerHTML = b.html;
+          b._searchText = node.textContent; b._searchHtml = b.html;
+        }
+        visible = b._searchText || "";
+      }
+      texts.push(editing ? editing.textContent : b.raw);
+      pattern.lastIndex = 0;
+      for (let match; (match = pattern.exec(visible)) !== null;) {
+        matches.push({index:b.index, start:match.index, end:match.index + match[0].length});
+      }
+    }
+    return {matches, texts};
+  },
+
+  findDocument(text, forward = true) {
+    const {matches, texts} = this.collectDocumentMatches(text);
+    const signature = text.toLocaleLowerCase() + "\0" + texts.join("\0");
+    const previous = this._documentFind;
+    let active;
+    if (previous && previous.signature === signature) {
+      active = (previous.active + (forward ? 1 : -1) + matches.length) % matches.length;
+    } else {
+      const editing = document.querySelector(".is-editing");
+      const selection = editing && this.selectionOffsets(editing);
+      const offset = selection ? (forward ? selection[1] : selection[0]) : this.lastCaret;
+      if (forward) {
+        active = matches.findIndex(m => m.index > this.activeIndex || (m.index === this.activeIndex && m.start >= offset));
+        if (active < 0) active = 0;
+      } else {
+        active = matches.length - 1;
+        for (let i = matches.length - 1; i >= 0; i--) {
+          if (matches[i].index < this.activeIndex || (matches[i].index === this.activeIndex && matches[i].end <= offset)) { active = i; break; }
+        }
+      }
+    }
+    this._documentFind = {signature, active};
+    const serial = this._findSerial = (this._findSerial || 0) + 1;
+    if (!matches.length) return {found:false, total:0, active:0};
+    const reveal = () => {
+      if (serial !== this._findSerial) return;
+      // A queued transform can split or merge blocks before navigation runs.
+      const fresh = this.collectDocumentMatches(text).matches;
+      const match = fresh[Math.min(active, fresh.length - 1)];
+      if (!match) return;
+      this.showRenderedBlock(match.index, (el, index) => {
+        if (serial !== this._findSerial) return;
+        el.scrollIntoView({block:"center"});
+        el.focus({preventScroll:true}); this.activeIndex = index; this.markActive(index);
+        const applyRange = (root) => {
+          const target = root || document.querySelector(`.block[data-index="${index}"]`);
+          if (!target) return;
+          const range = this.caretRange(target, match.start), end = this.caretRange(target, match.end);
+          range.setEnd(end.startContainer, end.startOffset);
+          getSelection().removeAllRanges(); getSelection().addRange(range);
+          this._documentFindRange = range;
+        };
+        applyRange(el);
+        // In windowed mode the scroll queues a viewport update that rebuilds this
+        // newly entered node (mountBlock), collapsing the selection; reapply after.
+        if (this.windowed)
+          requestAnimationFrame(() => requestAnimationFrame(() => {
+            if (serial === this._findSerial) applyRange();
+          }));
+        const rawMatch = this.literalFindPattern(text).exec(this.blocks[index].raw);
+        this.lastCaret = rawMatch ? rawMatch.index : 0;
+      }, true);
+    };
+    if (this.pendingTransform) this.pendingInput.push(reveal); else reveal();
+    return {found:true, total:matches.length, active:active + 1};
+  },
+
+  clearDocumentFind() {
+    this._findSerial = (this._findSerial || 0) + 1;
+    this._documentFind = null;
+    const selection = getSelection();
+    if (this._documentFindRange && selection.rangeCount && selection.getRangeAt(0) === this._documentFindRange) selection.removeAllRanges();
+    this._documentFindRange = null;
+  },
+
+  showRenderedBlock(index, action, preserveEditing = false) {
+    if (this.pendingTransform) { this.pendingInput.push(() => this.showRenderedBlock(index, action, preserveEditing)); return; }
+    const cell = document.querySelector("td[contenteditable=true],th[contenteditable=true]");
+    if (cell) cell.blur();
+    if (this.pendingTransform) { this.pendingInput.push(() => this.showRenderedBlock(index, action, preserveEditing)); return; }
+    const show = (resolved) => {
+      const el = document.querySelector(`.block[data-index="${resolved}"]`);
+      if (!el) return;
+      if (el.classList.contains("block-placeholder")) this.mountBlock(resolved);
+      action(el, resolved);
+    };
+    if (preserveEditing && index === this.editingIndex) { show(index); return; }
+    if (this.editingIndex >= 0) {
+      const raw = this.editingRaw();
+      if (raw !== this.blocks[this.editingIndex].raw) {
+        this.runBridge("commitAndLocate", [this.editingIndex, raw, index], result => {
+          this.renderAll(result.blocks); show(result.index);
+        });
+        return;
+      }
+      this.renderAll(this.blocks);
+    }
+    show(index);
+  },
+
+  jumpToId(id) {
+    if (!id) return;
+    let index = -1;
+    for (const b of this.blocks) {
+      if (b.type !== "heading") continue;
+      const node = document.createElement("div"); node.innerHTML = b.html;
+      if ([...node.querySelectorAll("h1[id],h2[id],h3[id],h4[id],h5[id],h6[id]")].some(h => h.id === id)) { index = b.index; break; }
+    }
+    if (index < 0) return;
+    this.showRenderedBlock(index, (el, resolved) => {
+      this.activeIndex = resolved; this.lastCaret = 0; this.markActive(resolved);
+      el.scrollIntoView({block:"start"}); el.focus({preventScroll:true});
+    });
+  },
+
   jumpTo(index) {
     if (this.pendingTransform) { this.pendingInput.push(() => this.jumpTo(index)); return; }
     if (this.editingIndex >= 0) {
@@ -730,11 +979,13 @@ const App = {
   // ---------------- 按键 ----------------
 
   onKeyDown(e) {
+    const pairs = {"[":"]","(":")","{":"}","`":"`","*":"*","~":"~"};
     if (e.defaultPrevented) return;
     if (e.isComposing || e.keyCode === 229) return; // IME 组字保护
     if (this.pendingTransform && (["Enter", "Tab", "Backspace", "Delete", "Escape", " ",
         "ArrowUp", "ArrowDown", "ArrowLeft", "ArrowRight", "Home", "End", "PageUp", "PageDown", "F2"].includes(e.key) ||
-        (e.key === '"' && window.__smartQuotes))) {
+        (e.key === '"' && window.__smartQuotes) ||
+        (window.__autoBracket && (Object.prototype.hasOwnProperty.call(pairs, e.key) || ["]", ")", "}"].includes(e.key))))) {
       e.preventDefault();
       const options = {key:e.key, shiftKey:e.shiftKey, ctrlKey:e.ctrlKey, altKey:e.altKey, metaKey:e.metaKey,
         bubbles:true, cancelable:true};
@@ -782,7 +1033,11 @@ const App = {
       } else if (!ctrl && !e.altKey && e.key.length === 1 && !e.target.closest("th,td")) {
         e.preventDefault();
         this.switchTo(this.activeIndex, {caret:this.lastCaret});
-        this.replaceSelection(e.key);
+        if (window.__autoBracket && Object.prototype.hasOwnProperty.call(pairs, e.key)) {
+          this.wrapSelection(e.key, pairs[e.key]);
+        } else {
+          this.replaceSelection(e.key);
+        }
       }
       return;
     }
@@ -828,6 +1083,28 @@ const App = {
       }
     }
 
+    if (!ctrl && !e.altKey && window.__autoBracket) {
+      if (Object.prototype.hasOwnProperty.call(pairs, key)) {
+        e.preventDefault();
+        this.wrapSelection(key, pairs[key]);
+        return;
+      }
+      if (off === end && ["]", ")", "}"].includes(key) && el.textContent[off] === key) {
+        e.preventDefault();
+        this.setCaret(el, off + 1);
+        return;
+      }
+      if (key === "Backspace" && off === end && off > 0 &&
+          Object.prototype.hasOwnProperty.call(pairs, el.textContent[off - 1]) &&
+          pairs[el.textContent[off - 1]] === el.textContent[off]) {
+        e.preventDefault();
+        el.textContent = el.textContent.slice(0, off - 1) + el.textContent.slice(off + 1);
+        this.setCaret(el, off - 1);
+        this.syncDraft();
+        return;
+      }
+    }
+
     if (key === "Enter") {
       e.preventDefault();
       this.requestTransform(el, "enter", off, raw);
@@ -846,7 +1123,7 @@ const App = {
       this.requestTransform(el, "spaceProbe", off + 1, spaced);
     } else if (key === '"' && window.__smartQuotes) {
       e.preventDefault();
-      this.insertPaired("“", "”");
+      this.wrapSelection("“", "”");
     } else if (key === "Escape") {
       e.preventDefault();
       this.commitEdit();

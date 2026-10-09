@@ -120,7 +120,11 @@ def indent_line(raw: str, offset: int, tab_size: int, outdent: bool) -> Transfor
     lines, line_index, _ = _locate(raw, offset)
     line = lines[line_index]
     if outdent:
-        lines[line_index] = re.sub(r"^ {1,4}|\t", "", line)
+        if line.startswith("\t"):
+            lines[line_index] = line[1:]
+        else:
+            remove = min(tab_size, len(line) - len(line.lstrip(" ")))
+            lines[line_index] = line[remove:]
     else:
         lines[line_index] = " " * tab_size + line
     text = "\n".join(lines)

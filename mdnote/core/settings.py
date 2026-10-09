@@ -1,11 +1,12 @@
 """JSON 设置服务：字段与 Electron 版 AppSettings 对齐。"""
 
 import json
-from dataclasses import asdict, dataclass, field, fields
+from dataclasses import asdict, dataclass, field, fields, replace
 from pathlib import Path
 from typing import Callable, List
 
 from ..config import settings_file
+from .file_io import atomic_write_text
 
 
 @dataclass
@@ -45,26 +46,62 @@ class SettingsService:
             data = json.loads(self._path.read_text(encoding="utf-8"))
         except (OSError, ValueError):
             return AppSettings()
+        if not isinstance(data, dict):
+            return AppSettings()
+        defaults = AppSettings()
         known = {f.name for f in fields(AppSettings)}
-        return AppSettings(**{k: v for k, v in data.items() if k in known})
+        values = {}
+        for key, value in data.items():
+            if key not in known:
+                continue
+            default = getattr(defaults, key)
+            if isinstance(default, bool):
+                valid = type(value) is bool
+            elif isinstance(default, int):
+                valid = type(value) is int
+            elif isinstance(default, list):
+                valid = isinstance(value, list)
+                if valid:
+                    value = [item for item in value if isinstance(item, str) and item and "\0" not in item]
+            elif default is None:
+                valid = value is None or (isinstance(value, str) and "\0" not in value)
+            else:
+                valid = isinstance(value, str) and "\0" not in value
+            if valid:
+                values[key] = value
+        for key, minimum, maximum in (("font_size", 12, 28), ("tab_size", 1, 8)):
+            if key in values:
+                values[key] = max(minimum, min(maximum, values[key]))
+        return AppSettings(**values)
 
-    def save(self) -> None:
-        self._path.write_text(
-            json.dumps(asdict(self.current), ensure_ascii=False, indent=2),
-            encoding="utf-8",
+    def _write(self, settings: AppSettings) -> None:
+        atomic_write_text(self._path,
+            json.dumps(asdict(settings), ensure_ascii=False, indent=2),
         )
 
+    def save(self) -> None:
+        self._write(self.current)
+
     def patch(self, **kwargs) -> AppSettings:
-        for k, v in kwargs.items():
-            if hasattr(self.current, k):
-                setattr(self.current, k, v)
-        self.save()
+        # Publish only persisted values. Failed writes leave the previous object,
+        # disk contents and observers untouched.
+        known = {item.name for item in fields(AppSettings)}
+        updates = {key: list(value) if isinstance(value, list) else value
+                   for key, value in kwargs.items() if key in known}
+        candidate = replace(self.current, **updates)
+        self._write(candidate)
+        self.current = candidate
         for cb in list(self._listeners):
-            cb(self.current)
-        return self.current
+            cb(candidate)
+        return candidate
 
     def on_change(self, cb: Callable[[AppSettings], None]) -> None:
-        self._listeners.append(cb)
+        if cb not in self._listeners:
+            self._listeners.append(cb)
+
+    def off_change(self, cb: Callable[[AppSettings], None]) -> None:
+        if cb in self._listeners:
+            self._listeners.remove(cb)
 
 
 _svc: SettingsService | None = None

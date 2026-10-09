@@ -210,3 +210,18 @@ th { background: var(--bg-secondary); }
 
 .math-block, .mermaid { margin: 0.7em 0; }
 .diagram-error { color: var(--accent); font-size: 13px; }
+
+/* Scrollbars follow the document theme, including dark backgrounds. */
+::-webkit-scrollbar { width: 10px; height: 10px; }
+::-webkit-scrollbar-track { background: var(--bg); }
+::-webkit-scrollbar-thumb {
+  background: var(--border);
+  border: 2px solid var(--bg);
+  border-radius: 8px;
+}
+::-webkit-scrollbar-thumb:hover { background: var(--text-secondary); }
+
+/* Keep generated line numbers separate from selectable source code. */
+pre.code-with-lines { display: flex; align-items: flex-start; white-space: normal; }
+pre.code-with-lines > code, pre.code-with-lines > .code-text { white-space: pre; min-width: 0; }
+.code-line-gutter { user-select: none; flex: 0 0 auto; white-space: pre; text-align: right; color: var(--text-secondary); padding-right: 1em; margin-right: 1em; border-right: 1px solid var(--border); }

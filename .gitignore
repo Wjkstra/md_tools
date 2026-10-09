@@ -24,3 +24,6 @@ MdNote-Setup-*.exe
 .vscode/
 .idea/
 .DS_Store
+
+# 项目内临时测试依赖
+.test-deps/

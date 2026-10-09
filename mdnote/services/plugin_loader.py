@@ -17,6 +17,8 @@ import importlib.util
 import sys
 from pathlib import Path
 
+from markdown.extensions import Extension
+
 from ..config import app_data_dir
 
 _MODULE_PREFIX = "mdnote_userplugin_"
@@ -79,18 +81,18 @@ def _import_plugin(info: PluginInfo):
     return module
 
 
-def load_enabled(
+def load_enabled_named(
     names: list[str],
     directory: Path | None = None,
-) -> tuple[list, list[tuple[str, str]]]:
-    """按启用名单导入并实例化扩展。
-
-    返回 ``(Extension 实例列表, [(插件名, 错误信息), ...])``。
-    """
-    by_name = {p.name: p for p in discover(directory)}
-    instances: list = []
+) -> tuple[list[tuple[str, Extension]], list[tuple[str, str]]]:
+    """Load only enabled, well-formed extensions and retain names for diagnostics."""
+    try:
+        by_name = {plugin.name: plugin for plugin in discover(directory)}
+    except OSError as exc:
+        return [], [("插件目录", f"无法读取：{exc}")]
+    instances: list[tuple[str, Extension]] = []
     errors: list[tuple[str, str]] = []
-    for name in names:
+    for name in dict.fromkeys(names):
         info = by_name.get(name)
         if info is None:
             errors.append((name, "未找到该插件"))
@@ -100,9 +102,20 @@ def load_enabled(
             factory = getattr(module, "makeExtension", None)
             if not callable(factory):
                 raise AttributeError("插件未提供 makeExtension()")
-            ext = factory()
-        except Exception as e:  # 隔离每个插件的导入 / 实例化错误
-            errors.append((name, f"{type(e).__name__}: {e}"))
+            extension = factory()
+            if not isinstance(extension, Extension):
+                raise TypeError("makeExtension() 必须返回 Markdown Extension")
+        except Exception as exc:
+            errors.append((name, f"{type(exc).__name__}: {exc}"))
             continue
-        instances.append(ext)
+        instances.append((name, extension))
     return instances, errors
+
+
+def load_enabled(
+    names: list[str],
+    directory: Path | None = None,
+) -> tuple[list, list[tuple[str, str]]]:
+    """Compatibility API returning extension instances and per-plugin errors."""
+    named, errors = load_enabled_named(names, directory)
+    return [extension for _name, extension in named], errors

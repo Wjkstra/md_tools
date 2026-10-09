@@ -17,6 +17,12 @@ import argparse
 import hashlib
 import json
 from pathlib import Path
+from urllib.parse import urlsplit
+
+try:
+    from .prepare_installer import read_app_version
+except ImportError:
+    from prepare_installer import read_app_version
 
 
 def sha256_of(path: Path) -> str:
@@ -30,7 +36,8 @@ def sha256_of(path: Path) -> str:
 def main() -> None:
     parser = argparse.ArgumentParser()
     parser.add_argument("--installer", required=True, type=Path)
-    parser.add_argument("--version", required=True)
+    parser.add_argument("--version", default=read_app_version(),
+                        help="Defaults to mdnote.__version__; must match it")
     parser.add_argument("--url", required=True)
     parser.add_argument("--notes", default="")
     parser.add_argument(
@@ -40,6 +47,18 @@ def main() -> None:
     parser.add_argument("--min-version", default=None)
     parser.add_argument("--out", required=True, type=Path)
     args = parser.parse_args()
+    if args.version != read_app_version():
+        parser.error("--version must match mdnote.__version__; update that source first")
+
+    try:
+        address = urlsplit(args.url)
+        if (address.scheme.lower() != "https" or not address.hostname or
+                address.username is not None or address.password is not None or
+                any(ord(character) < 33 for character in args.url)):
+            raise ValueError("invalid HTTPS URL")
+        address.port
+    except ValueError:
+        parser.error("--url must be an HTTPS URL without embedded credentials")
 
     if not args.installer.exists():
         raise SystemExit(f"安装包不存在：{args.installer}")

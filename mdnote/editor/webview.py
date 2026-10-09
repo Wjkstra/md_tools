@@ -4,11 +4,9 @@ import json
 import re
 from functools import lru_cache
 from pathlib import Path
-from urllib.parse import unquote
 from html import escape as html_escape
 from typing import Callable, Optional
 
-import nh3
 from PySide6.QtCore import QObject, QUrl, Signal, Slot
 from PySide6.QtGui import QDesktopServices
 from PySide6.QtWebChannel import QWebChannel
@@ -17,6 +15,7 @@ from PySide6.QtWebEngineCore import QWebEnginePage
 
 from .. import config as app_config
 from ..core.settings import settings_service
+from ..services.html_service import safe_html as _safe_html, rewrite_relative_images as _rewrite_relative_images
 from ..services.image_service import import_image
 from ..services.markdown_engine import markdown_engine
 from .block_model import build_model, extract_headings, find_block_index, serialize
@@ -25,56 +24,7 @@ from . import transforms as T
 _WEB_DIR = app_config.web_dir()
 
 
-# ---------------- 渲染内容净化（nh3 / ammonia） ----------------
-
-_ALLOWED_TAGS = {
-    "a", "abbr", "b", "blockquote", "br", "code", "col", "colgroup", "dd",
-    "del", "div", "dl", "dt", "em", "h1", "h2", "h3", "h4", "h5", "h6",
-    "hr", "i", "img", "input", "ins", "kbd", "li", "mark", "ol", "p",
-    "pre", "q", "s", "samp", "small", "span", "strong", "sub", "sup",
-    "table", "tbody", "td", "tfoot", "th", "thead", "tr", "u", "ul", "var",
-}
-
-_ALLOWED_ATTRS = {
-    "*": {"class", "id", "title", "style"},
-    "a": {"href", "title"},
-    "img": {"src", "alt", "title", "width", "height"},
-    "input": {"type", "checked", "disabled"},
-    "td": {"colspan", "rowspan", "align"},
-    "th": {"colspan", "rowspan", "align"},
-    "col": {"span"},
-}
-
-_URL_SCHEMES = {"http", "https", "mailto", "tel", "file", "data"}
-
-_IMG_SRC_RE = re.compile(r'(<img\b[^>]*?\bsrc=")([^"]+)(")', re.IGNORECASE)
-_HAS_SCHEME_RE = re.compile(r"^[a-z][a-z0-9+.-]*:|^//", re.IGNORECASE)
-
-
-def _rewrite_relative_images(markup: str, base: str | None) -> str:
-    """把相对图片地址改写为基于文档目录的绝对 file:// URL。"""
-    if not base:
-        return markup
-
-    def repl(m: re.Match) -> str:
-        src = m.group(2)
-        if _HAS_SCHEME_RE.match(src.strip()):
-            return m.group(0)
-        target = (Path(base) / unquote(src)).resolve()
-        return f"{m.group(1)}{target.as_uri()}{m.group(3)}"
-
-    return _IMG_SRC_RE.sub(repl, markup)
-
-
-def _safe_html(markup: str, base: str | None = None) -> str:
-    """相对图片改写 → nh3 净化。"""
-    markup = _rewrite_relative_images(markup, base)
-    return nh3.clean(
-        markup,
-        tags=_ALLOWED_TAGS,
-        attributes=_ALLOWED_ATTRS,
-        url_schemes=_URL_SCHEMES,
-    )
+_RENDER_GENERATION = 0
 
 
 @lru_cache(maxsize=512)
@@ -84,42 +34,55 @@ def _render_block(raw: str) -> str:
 
 def invalidate_render_cache() -> None:
     """Markdown 引擎 / 启用插件变化后清空块渲染缓存。"""
+    global _RENDER_GENERATION
+    _RENDER_GENERATION += 1
     _render_block.cache_clear()
 
 
-def _blocks_payload(model, base: str | None = None) -> list[dict]:
+def _blocks_payload(model, base: str | None = None,
+                    rendered_cache: dict | None = None) -> list[dict]:
+    # Keep the document's working set rather than cycling through a small global LRU.
+    cache = rendered_cache if rendered_cache is not None else {}
+    used = set()
     headings = extract_headings(model)
     heading_by_block = {h.block_index: h for h in headings}
+    toc_key = tuple((h.level, h.id, h.text) for h in headings)
     out = []
     for i, b in enumerate(model.blocks):
         if b.trailing:
             out.append({"index": i, "type": "paragraph", "raw": "", "html": "", "trailing": True})
             continue
-        if b.type == "toc":
-            items = "".join(
-                f'<li class="toc-item toc-l{h.level}" style="padding-left:{(h.level - 1) * 14}px">'
-                f'<a class="toc-link" data-toc-id="{html_escape(h.id)}">{html_escape(h.text)}</a></li>'
-                for h in headings
-            )
-            rendered = (
-                '<nav class="toc-block"><div class="toc-title">目录</div>'
-                f'<ul class="toc-list">{items}</ul></nav>'
-            )
-        elif b.type == "heading":
-            info = heading_by_block.get(i)
-            rendered = _render_block(b.raw)
-            if info:
-                rendered = re.sub(
-                    r'(<h[1-6]\s+)id="[^"]*"',
-                    f'\\1id="{html_escape(info.id)}"',
-                    rendered,
+        info = heading_by_block.get(i)
+        key = (b.raw, b.type, base, info.id if info else None,
+               toc_key if b.type == "toc" else None)
+        used.add(key)
+        rendered = cache.get(key)
+        if rendered is None:
+            if b.type == "toc":
+                items = "".join(
+                    f'<li class="toc-item toc-l{h.level}" style="padding-left:{(h.level - 1) * 14}px">'
+                    f'<a class="toc-link" data-toc-id="{html_escape(h.id)}">{html_escape(h.text)}</a></li>'
+                    for h in headings
                 )
-        else:
-            rendered = _render_block(b.raw)
-        rendered = _safe_html(rendered, base)
-        out.append(
-            {"index": i, "type": b.type, "raw": b.raw, "html": rendered, "trailing": False}
-        )
+                rendered = (
+                    '<nav class="toc-block"><div class="toc-title">目录</div>'
+                    f'<ul class="toc-list">{items}</ul></nav>'
+                )
+            else:
+                rendered = _render_block(b.raw)
+                if b.type == "heading" and info:
+                    rendered = re.sub(
+                        r'(<h[1-6]\s+)id="[^"]*"',
+                        lambda m: f'{m.group(1)}id="{html_escape(info.id)}"',
+                        rendered,
+                    )
+            rendered = _safe_html(rendered, base)
+            cache[key] = rendered
+        out.append({"index": i, "type": b.type, "raw": b.raw,
+                    "html": rendered, "trailing": False})
+    # Deleted/changed blocks do not accumulate across the editing session.
+    for stale in cache.keys() - used:
+        del cache[stale]
     return out
 
 
@@ -131,6 +94,8 @@ class LiveDocument:
         self.model = build_model("")
         self.on_text_changed = on_text_changed
         self.doc_base: str | None = None
+        self._render_cache: dict = {}
+        self._render_generation = _RENDER_GENERATION
         self._undo: list[str] = []
         self._redo: list[str] = []
         self._draft: tuple[int, str] | None = None
@@ -143,6 +108,19 @@ class LiveDocument:
         self.model = build_model(text)
         self._undo.clear()
         self._redo.clear()
+
+    def replace_text(self, text: str) -> None:
+        """Record an asset-reference rewrite without discarding editing history."""
+        current = self.get_text()
+        if current == text:
+            return
+        if self._draft is not None:
+            self.text = current
+            self.model = build_model(current)
+            self._draft = None
+        self._snapshot()
+        self.text = text
+        self.model = build_model(text)
 
     def get_text(self) -> str:
         if self._draft is not None:
@@ -169,7 +147,10 @@ class LiveDocument:
         self.on_text_changed()
 
     def payload(self) -> list[dict]:
-        return _blocks_payload(self.model, self.doc_base)
+        if self._render_generation != _RENDER_GENERATION:
+            self._render_cache.clear()
+            self._render_generation = _RENDER_GENERATION
+        return _blocks_payload(self.model, self.doc_base, self._render_cache)
 
     # ---------------- 历史 ----------------
 
@@ -269,18 +250,18 @@ class LiveDocument:
         return {"blocks": self.payload(), "index": new_index,
                 "text": new_b.raw, "caret": caret_global - new_b.start}
 
-    def toggle_task(self, index: int) -> list[dict]:
+    def toggle_task(self, index: int, task_index: int = 0) -> list[dict]:
         b = self.model.blocks[index]
         lines = b.raw.split("\n")
         checkboxes: list[int] = []
         for i, line in enumerate(lines):
             if __import__("re").match(r"^\s*[-+*]\s+\[[ xX]\]", line):
                 checkboxes.append(i)
-        if not checkboxes:
+        if not 0 <= task_index < len(checkboxes):
             return self.payload()
-        line_i = checkboxes[0]
+        line_i = checkboxes[task_index]
         m = __import__("re").match(r"^(\s*[-+*]\s+)\[([ xX])\]", lines[line_i])
-        nxt = " " if m.group(2) == "x" else "x"
+        nxt = " " if m.group(2).lower() == "x" else "x"
         lines[line_i] = f"{m.group(1)}[{nxt}]" + lines[line_i][m.end():]
         new_raw = "\n".join(lines)
         self._snapshot()
@@ -302,6 +283,7 @@ class Bridge(QObject):
     """JS 通过 QWebChannel 调用的方法。全部 JSON 字符串往返。"""
 
     test_result = Signal(str)
+    operation_failed = Signal(str)
 
     def __init__(self, doc: LiveDocument, get_doc_path=None) -> None:
         super().__init__()
@@ -352,8 +334,9 @@ class Bridge(QObject):
         return json.dumps(r, ensure_ascii=False)
 
     @Slot(int, result=str)
-    def toggleTask(self, index: int) -> str:
-        return json.dumps(self._doc.toggle_task(index), ensure_ascii=False)
+    @Slot(int, int, result=str)
+    def toggleTask(self, index: int, task_index: int = 0) -> str:
+        return json.dumps(self._doc.toggle_task(index, task_index), ensure_ascii=False)
 
     @Slot(int, str, result=str)
     def updateTable(self, index: int, markdown: str) -> str:
@@ -361,16 +344,17 @@ class Bridge(QObject):
 
     @Slot(str, result=str)
     def addImage(self, args_json: str) -> str:
-        args = json.loads(args_json)
-        s = settings_service().current
-        return import_image(
-            src_path=args.get("srcPath"),
-            data_url=args.get("dataUrl"),
-            file_name=args.get("fileName"),
-            doc_path=self._get_doc_path(),
-            folder=s.image_folder,
-            path_type=s.image_path_type,
-        )
+        try:
+            args = json.loads(args_json)
+            s = settings_service().current
+            return import_image(
+                src_path=args.get("srcPath"), data_url=args.get("dataUrl"),
+                file_name=args.get("fileName"), doc_path=self._get_doc_path(),
+                folder=s.image_folder, path_type=s.image_path_type,
+            )
+        except (OSError, ValueError, TypeError) as exc:
+            self.operation_failed.emit(f"图片导入失败：{exc}")
+            return ""
 
     @Slot(str)
     def openExternal(self, url: str) -> None:
@@ -426,6 +410,14 @@ class WebPreview(QWebEngineView):
             f"document.body.setAttribute('data-theme', {json.dumps(theme_id)});"
             f"window.__typewriter = {'true' if s.typewriter_mode else 'false'};"
             f"window.__smartQuotes = {'true' if s.smart_punctuation else 'false'};"
+            f"window.__autoBracket = {'true' if s.auto_bracket else 'false'};"
+            f"window.__mermaid = {'true' if s.mermaid else 'false'};"
+            f"window.__codeLineNumbers = {'true' if s.code_line_numbers else 'false'};"
+            f"if (document.body.style.fontSize !== {json.dumps(str(s.font_size) + 'px')}) {{"
+            f"document.body.style.fontSize = {json.dumps(str(s.font_size) + 'px')};"
+            "if (typeof App !== 'undefined') { App.measuredHeights.clear(); App.scheduleViewportUpdate(); }"
+            "}"
+            "if (typeof App !== 'undefined' && App.applyRenderPrefs) App.applyRenderPrefs();"
         )
 
     @staticmethod

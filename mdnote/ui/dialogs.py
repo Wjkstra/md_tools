@@ -1,6 +1,7 @@
 """原生对话框：提示 / 确认 / 输入 / 设置面板。"""
 
-from PySide6.QtCore import QEvent, Qt
+from PySide6.QtCore import QEvent, Qt, QUrl
+from shiboken6 import isValid
 
 from PySide6.QtWidgets import (
     QCheckBox,
@@ -51,7 +52,7 @@ class CommandPalette(QDialog):
         self.results.clear()
         terms = query.casefold().split()
         for title, action in self.commands:
-            if not action.isEnabled() or not all(term in title.casefold() for term in terms):
+            if not isValid(action) or not action.isEnabled() or not all(term in title.casefold() for term in terms):
                 continue
             shortcut = action.shortcut().toString()
             item = QListWidgetItem(title + (f"    {shortcut}" if shortcut else ""))
@@ -62,7 +63,7 @@ class CommandPalette(QDialog):
 
     def _choose(self) -> None:
         item = self.results.currentItem()
-        if item:
+        if item and isValid(item.data(Qt.UserRole)):
             self.chosen = item.data(Qt.UserRole)
             self.accept()
 
@@ -111,6 +112,7 @@ def prompt(parent: QWidget, message: str, default: str = "") -> str | None:
 class SettingsDialog(QDialog):
     def __init__(self, parent: QWidget) -> None:
         super().__init__(parent)
+        self.setPalette(parent.palette())
         self.setWindowTitle("设置")
         svc = settings_service()
         s = svc.current
@@ -131,8 +133,15 @@ class SettingsDialog(QDialog):
         self._font.setRange(12, 28)
         self._font.setValue(s.font_size)
 
+        self._tab_size = QSpinBox()
+        self._tab_size.setRange(1, 8)
+        self._tab_size.setValue(s.tab_size)
+        self._tab_size.setSuffix(" 个空格")
+        self._auto_bracket = QCheckBox("输入符号时自动配对")
+        self._auto_bracket.setChecked(s.auto_bracket)
         self._autosave = QCheckBox("停顿 1 秒自动保存")
         self._autosave.setChecked(s.auto_save)
+        self._autosave.setToolTip("仅对已保存过的文件生效；未命名文档请先按 Ctrl+S 保存。")
 
         self._mermaid = QCheckBox("启用 Mermaid 图表")
         self._mermaid.setChecked(s.mermaid)
@@ -166,6 +175,8 @@ class SettingsDialog(QDialog):
 
         form.addRow("主题", self._theme)
         form.addRow("字号", self._font)
+        form.addRow("缩进宽度", self._tab_size)
+        form.addRow("", self._auto_bracket)
         form.addRow("", self._autosave)
         form.addRow("", self._mermaid)
         form.addRow("", self._linenos)
@@ -176,6 +187,8 @@ class SettingsDialog(QDialog):
         form.addRow("", plugin_hint)
 
         buttons = QDialogButtonBox(QDialogButtonBox.Ok | QDialogButtonBox.Cancel)
+        buttons.button(QDialogButtonBox.Ok).setText("确定")
+        buttons.button(QDialogButtonBox.Cancel).setText("取消")
         buttons.accepted.connect(self.accept)
         buttons.rejected.connect(self.reject)
         form.addRow(buttons)
@@ -186,15 +199,26 @@ class SettingsDialog(QDialog):
             for i in range(self._plugins.count())
             if self._plugins.item(i).checkState() == Qt.Checked
         ]
-        settings_service().patch(
-            theme=self._theme.currentData(),
-            font_size=self._font.value(),
-            auto_save=self._autosave.isChecked(),
-            mermaid=self._mermaid.isChecked(),
-            code_line_numbers=self._linenos.isChecked(),
-            image_folder=self._imgfolder.text().strip() or "assets",
-            update_url=self._update_url.text().strip(),
-            auto_check_updates=self._auto_check.isChecked(),
-            enabled_plugins=enabled,
-        )
+        update_url = self._update_url.text().strip()
+        parsed_url = QUrl(update_url)
+        if update_url and (not parsed_url.isValid() or parsed_url.scheme().lower() != "https" or not parsed_url.host()):
+            QMessageBox.warning(self, "更新地址无效", "请填写有效的 HTTPS 更新清单地址，或留空使用默认地址。")
+            return
+        try:
+            settings_service().patch(
+                theme=self._theme.currentData(),
+                font_size=self._font.value(),
+                tab_size=self._tab_size.value(),
+                auto_bracket=self._auto_bracket.isChecked(),
+                auto_save=self._autosave.isChecked(),
+                mermaid=self._mermaid.isChecked(),
+                code_line_numbers=self._linenos.isChecked(),
+                image_folder=self._imgfolder.text().strip() or "assets",
+                update_url=self._update_url.text().strip(),
+                auto_check_updates=self._auto_check.isChecked(),
+                enabled_plugins=enabled,
+            )
+        except (OSError, ValueError) as exc:
+            QMessageBox.warning(self, "设置未保存", f"原有配置仍保留，请重试：{exc}")
+            return
         super().accept()
