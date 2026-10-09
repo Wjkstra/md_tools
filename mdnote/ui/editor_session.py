@@ -187,7 +187,11 @@ class EditorSession(QWidget):
     def load_text(self, text: str) -> None:
         if self.mode == "live":
             self.doc.set_text(text)
-            self.preview.reload_blocks(focus=True)
+            # Before the page's first load, App.init will itself loadBlocks this
+            # already-set text; a second loadDocument here races the init load and
+            # can mark the document dirty after the explicit set_dirty(False).
+            if self.preview._app_ready:
+                self.preview.reload_blocks(focus=True)
         else:
             self.source.set_text(text)
         self.stats = count_stats(text)
