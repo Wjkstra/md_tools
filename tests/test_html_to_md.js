@@ -1,0 +1,130 @@
+// Function-level tests for the HTML->Markdown serializer using a minimal DOM.
+const assert = require("node:assert/strict");
+const { test } = require("node:test");
+const HtmlToMd = require("../mdnote/editor/web/html_to_md.js");
+
+function textNode(value) {
+  return { nodeType: 3, nodeValue: value, childNodes: [], get textContent() { return value; } };
+}
+
+// h("p", {class:"x"}, "raw text", childEl, ...)
+function h(tag, attrs, ...kids) {
+  const childNodes = kids.map((kid) =>
+    typeof kid === "string" ? textNode(kid) : kid);
+  return {
+    nodeType: 1,
+    tagName: tag.toUpperCase(),
+    childNodes,
+    attributes: attrs || {},
+    get textContent() { return childNodes.map((c) => c.textContent).join(""); },
+    getAttribute(name) {
+      return Object.prototype.hasOwnProperty.call(this.attributes, name)
+        ? String(this.attributes[name]) : null;
+    },
+    get style() { return this.attributes.style || {}; },
+  };
+}
+
+const root = (...blocks) => h("div", {}, ...blocks);
+const md = (node) => HtmlToMd.serialize(node);
+
+test("headings and paragraph inline marks", () => {
+  const doc = root(
+    h("h1", {}, "标题"),
+    h("h2", {}, "副题"),
+    h("p", {}, "普通", h("strong", {}, "加粗"), h("em", {}, "斜体"),
+      h("code", {}, "x=1"), h("del", {}, "删")),
+  );
+  assert.equal(md(doc), [
+    "# 标题",
+    "## 副题",
+    "普通**加粗***斜体*`x=1`~~删~~",
+  ].join("\n\n"));
+});
+
+test("links, images and br line breaks", () => {
+  const doc = root(h("p", {},
+    h("a", { href: "https://a.com" }, "链接"),
+    h("img", { src: "p.png", alt: "图" }),
+    h("br"),
+    "第二行",
+  ));
+  assert.equal(md(doc), "[链接](https://a.com)![图](p.png)\n第二行");
+});
+
+test("unordered, ordered and nested lists", () => {
+  const doc = root(
+    h("ul", {},
+      h("li", {}, "甲"),
+      h("li", {}, "乙", h("ul", {}, h("li", {}, "嵌套")))),
+    h("ol", {}, h("li", {}, "一"), h("li", {}, "二")),
+  );
+  assert.equal(md(doc), [
+    "- 甲",
+    "- 乙",
+    "  - 嵌套",
+    "",
+    "1. 一",
+    "2. 二",
+  ].join("\n"));
+});
+
+test("task list items keep checkbox state", () => {
+  const doc = root(h("ul", {},
+    h("li", { class: "task-list-item" },
+      h("input", { type: "checkbox", class: "task-checkbox" }),
+      "未完成"),
+    h("li", { class: "task-list-item" },
+      h("input", { type: "checkbox", class: "task-checkbox", checked: "" }),
+      "完成"),
+  ));
+  assert.equal(md(doc), "- [ ] 未完成\n- [x] 完成");
+});
+
+test("blockquote prefixes every line", () => {
+  const doc = root(h("blockquote", {},
+    h("p", {}, "引用", h("br"), "第二行")));
+  assert.equal(md(doc), "> 引用\n> 第二行");
+});
+
+test("code block keeps plain text and language, dropping highlight spans", () => {
+  const pre = h("pre", { "data-lang": "python" },
+    h("code", {},
+      h("span", { class: "nb" }, "print"),
+      h("span", { class: "p" }, "("),
+      h("span", { class: "s2" }, '"代码"'),
+      h("span", { class: "p" }, ")")));
+  const direct = root(pre);
+  assert.equal(md(direct), '```python\nprint("代码")\n```');
+  // Wrapped in Pygments .codehilite div (unknown block -> find inner pre).
+  const wrapped = root(h("div", { class: "codehilite" }, pre));
+  assert.equal(md(wrapped), '```python\nprint("代码")\n```');
+});
+
+test("hr", () => {
+  assert.equal(md(root(h("hr"))), "---");
+});
+
+test("table with alignment", () => {
+  const doc = root(h("table", {},
+    h("thead", {}, h("tr", {},
+      h("th", {}, "列一"),
+      h("th", { style: { textAlign: "right" } }, "列二"))),
+    h("tbody", {}, h("tr", {},
+      h("td", {}, "a"),
+      h("td", { style: { textAlign: "right" } }, "b")))));
+  assert.equal(md(doc), [
+    "| 列一 | 列二 |",
+    "| --- | ---: |",
+    "| a | b |",
+  ].join("\n"));
+});
+
+test("empty paragraphs become blank lines", () => {
+  const doc = root(
+    h("p", {}, "第一段"),
+    h("p", {}),
+    h("p", {}, "第三段"),
+  );
+  assert.equal(md(doc), "第一段\n\n\n第三段");
+});
