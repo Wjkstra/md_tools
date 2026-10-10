@@ -20,8 +20,58 @@ const App = {
     this.bridge = bridge;
     document.addEventListener("click", (e) => this.onClick(e));
     document.addEventListener("keydown", (e) => this.onKeyDown(e));
+    document.addEventListener("beforeinput", (e) => this.onBeforeInput(e));
     document.addEventListener("input", (e) => this.onInput(e));
     this.loadSurface();
+  },
+
+  // Auto-pair opening marks: typing one around a selection wraps it, otherwise
+  // inserts the pair; typing a closing mark skips an existing one.
+  PAIRS: { "[": "]", "(": ")", "{": "}", "`": "`", '"': '"' },
+
+  onBeforeInput(event) {
+    if (this.activeAtom || !window.__autoBracket ||
+        event.inputType !== "insertText" || !event.data) {
+      return;
+    }
+    const char = event.data;
+    if (!(char in this.PAIRS)) {
+      // Closing mark right before an identical existing one: skip it.
+      const close = Object.values(this.PAIRS).includes(char);
+      if (close) {
+        const selection = getSelection();
+        if (selection.rangeCount && selection.isCollapsed) {
+          const node = selection.anchorNode;
+          if (node.nodeType === 3 && node.data[selection.anchorOffset] === char) {
+            event.preventDefault();
+            const range = document.createRange();
+            range.setStart(node, selection.anchorOffset + 1);
+            range.collapse(true);
+            selection.removeAllRanges(); selection.addRange(range);
+          }
+        }
+      }
+      return;
+    }
+    const selection = getSelection();
+    if (!selection.rangeCount) return;
+    if (!selection.isCollapsed) {
+      event.preventDefault();
+      this.wrapSelection(char, this.PAIRS[char]);
+    } else {
+      event.preventDefault();
+      this.insertPair(char, this.PAIRS[char]);
+    }
+  },
+
+  insertPair(open, close) {
+    const selection = getSelection();
+    const range = selection.getRangeAt(0);
+    range.insertNode(document.createTextNode(open + close));
+    const node = range.startContainer;
+    const offset = range.startOffset - 1 + open.length;
+    const caret = this.caretRange(node, offset);
+    selection.removeAllRanges(); selection.addRange(caret);
   },
 
   loadSurface() {
