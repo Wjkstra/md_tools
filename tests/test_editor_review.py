@@ -125,7 +125,7 @@ class LiveReviewTests(unittest.TestCase):
         self.js("App.pushSurface()")
         self.wait(lambda: "\n\n\n空行后的文字" in self.doc.get_text())
 
-    def test_find_text_and_atom_presence(self):
+    def test_find_text_and_code_presence(self):
         text = ("普通含目标词文字。\n\n```python\nprint(1)\n```\n\n"
                 "$$\nx^2\n$$\n")
         self._load(text)
@@ -135,26 +135,30 @@ class LiveReviewTests(unittest.TestCase):
   const found = JSON.parse(App.findText("目标词", true));
   return JSON.stringify({
     found: found.found, total: found.total,
-    codeAtoms: d.querySelectorAll(".atom-code").length,
+    codeBlocks: d.querySelectorAll(".md-code").length,
+    codeLang: d.querySelector(".md-code-lang").textContent,
     mathAtoms: d.querySelectorAll(".atom-math").length,
   });
 })()""")
         data = json.loads(result)
         self.assertEqual(data, {"found": True, "total": 1,
-                                "codeAtoms": 1, "mathAtoms": 1})
+                                "codeBlocks": 1, "codeLang": "python",
+                                "mathAtoms": 1})
 
-    def test_atom_source_edit_then_commit(self):
+    def test_code_block_inline_edit(self):
         self._load("```python\nold = 1\n```\n")
-        # Click the atom to open its plaintext source editor, change, commit.
+        # Click into the always-editable code area, replace text; it syncs.
         self.js(r"""
 (()=>{
-  const atom = document.querySelector(".atom-code");
-  App.editAtom(atom);
-  atom.textContent = "```python\nnew = 2\n```";
-  App.commitAtom(true);
+  const area = document.querySelector(".md-code-area");
+  const range = document.createRange();
+  range.selectNodeContents(area); range.collapse(false);
+  const sel = getSelection(); sel.removeAllRanges(); sel.addRange(range);
+  document.execCommand("insertText", false, "\nnew = 2");
+  App.pushSurface();
 })()""")
-        self.wait(lambda: self.js("App.surfaceReady"))
-        self.assertIn("new = 2", self.doc.get_text())
+        self.wait(lambda: "new = 2" in self.doc.get_text())
+        self.assertIn("old = 1", self.doc.get_text())
 
 
 if __name__ == "__main__":

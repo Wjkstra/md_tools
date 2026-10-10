@@ -22,6 +22,20 @@ function h(tag, attrs, ...kids) {
         ? String(this.attributes[name]) : null;
     },
     get style() { return this.attributes.style || {}; },
+    // Minimal descendant lookup by ".class" selector for the serializer.
+    querySelector(selector) {
+      const wanted = selector.startsWith(".") ? selector.slice(1) : null;
+      const stack = [...childNodes];
+      while (stack.length) {
+        const current = stack.shift();
+        if (current.nodeType === 1) {
+          const classes = String(current.attributes && current.attributes.class || "").split(/\s+/);
+          if (wanted && classes.includes(wanted)) return current;
+          stack.push(...(current.childNodes || []));
+        }
+      }
+      return null;
+    },
   };
 }
 
@@ -87,18 +101,21 @@ test("blockquote prefixes every line", () => {
   assert.equal(md(doc), "> 引用\n> 第二行");
 });
 
-test("code block keeps plain text and language, dropping highlight spans", () => {
-  const pre = h("pre", { "data-lang": "python" },
-    h("code", {},
-      h("span", { class: "nb" }, "print"),
-      h("span", { class: "p" }, "("),
-      h("span", { class: "s2" }, '"代码"'),
-      h("span", { class: "p" }, ")")));
-  const direct = root(pre);
-  assert.equal(md(direct), '```python\nprint("代码")\n```');
-  // Wrapped in Pygments .codehilite div (unknown block -> find inner pre).
-  const wrapped = root(h("div", { class: "codehilite" }, pre));
-  assert.equal(md(wrapped), '```python\nprint("代码")\n```');
+test("code block reads inner editor text and re-fences", () => {
+  const block = h("div", { class: "md-code" },
+    h("div", { class: "md-code-lang" }, "python"),
+    h("pre", { class: "md-code-area" },
+      h("code", {},
+        h("span", {}, "print"),
+        h("span", {}, '("代码")'))));
+  assert.equal(md(root(block)), '```python\nprint("代码")\n```');
+});
+
+test("code block with text label fences without a language", () => {
+  const block = h("div", { class: "md-code" },
+    h("div", { class: "md-code-lang" }, "text"),
+    h("pre", { class: "md-code-area" }, h("code", {}, "plain")));
+  assert.equal(md(root(block)), "```\nplain\n```");
 });
 
 test("hr", () => {

@@ -59,14 +59,19 @@ def _render_editable(raw: str) -> str:
     return _clean(markdown_engine().render(raw))
 
 
-def _code_atom(block) -> str:
-    # Code is a non-editable atom; clicking it opens a plaintext source editor.
+def _code_block(block) -> str:
+    # Always-editable inline code editor (Typora style): no fence symbols, no
+    # mode switching. The language label sits in the corner.
     code_lines = block.raw.split("\n")[1:-1]
-    code_text = _html.escape("\n".join(code_lines))
-    label = block.lang or ""
-    inner = (f'<div class="atom-label">{_html.escape(label) or "Code"}</div>'
-             f'<pre class="surface-code-view"><code>{code_text}</code></pre>')
-    return _atom("atom-code", block.raw, inner)
+    code_text = _html.escape("\n".join(code_lines)) or "<br>"
+    label = _html.escape(block.lang) if block.lang else "text"
+    return (
+        '<div class="md-code" contenteditable="false">'
+        f'<div class="md-code-lang">{label}</div>'
+        '<pre class="md-code-area" contenteditable="true">'
+        f"<code>{code_text}</code></pre>"
+        "</div>"
+    )
 
 
 def _render_block(block) -> str:
@@ -83,7 +88,7 @@ def _render_block(block) -> str:
             source = _html.escape("\n".join(block.raw.split("\n")[1:-1]))
             return _atom("atom-diagram", block.raw,
                          f'<pre class="mermaid">{source}</pre>')
-        return _code_atom(block)
+        return _code_block(block)
 
     if btype == "math":
         display = _html.escape(block.raw)

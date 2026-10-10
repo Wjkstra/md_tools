@@ -221,9 +221,115 @@ const App = {
     this.loadSurface(); // re-render; keeps the model and surface consistent
   },
 
+  // Character offset of the caret inside an editable element.
+  textOffset(root) {
+    const selection = getSelection();
+    if (!selection.rangeCount) return 0;
+    const range = document.createRange();
+    range.selectNodeContents(root);
+    try { range.setEnd(selection.anchorNode, selection.anchorOffset); }
+    catch (error) { return 0; }
+    return range.toString().length;
+  },
+
+  // Insert text at the caret (works after preventDefault).
+  insertAtCaret(text) {
+    document.execCommand("insertText", false, text);
+  },
+
+  // ---------------- code editing ----------------
+
+  onCodeKeyDown(event, area) {
+    const tabSize = window.__tabSize || 2;
+    if (event.key === "Enter") {
+      event.preventDefault();
+      const text = area.textContent;
+      const offset = this.textOffset(area);
+      const before = text.slice(0, offset);
+      const lineStart = before.lastIndexOf("\n") + 1;
+      const currentLine = before.slice(lineStart);
+      const indent = (currentLine.match(/^[ \t]*/) || [""])[0];
+      // Unclosed block (more { than } so far): indent one more level.
+      const opens = (before.match(/{/g) || []).length;
+      const closes = (before.match(/}/g) || []).length;
+      const extra = opens > closes ? " ".repeat(tabSize) : "";
+      this.insertAtCaret("\n" + indent + extra);
+      this.scheduleSync();
+      return;
+    }
+    if (event.key === "Tab") {
+      event.preventDefault();
+      if (event.shiftKey) {
+        const text = area.textContent;
+        const offset = this.textOffset(area);
+        const lineStart = text.lastIndexOf("\n", offset - 1) + 1;
+        const leading = (text.slice(lineStart).match(/^ +/) || [""])[0].length;
+        const removed = Math.min(tabSize, leading);
+        if (removed > 0) {
+          const selection = getSelection();
+          const node = selection.anchorNode;
+          const at = selection.anchorOffset;
+          const range = document.createRange();
+          range.setStart(node, Math.max(0, at - removed));
+          range.setEnd(node, at);
+          range.deleteContents();
+        }
+      } else {
+        this.insertAtCaret(" ".repeat(tabSize));
+      }
+      this.scheduleSync();
+    }
+  },
+
+  // ---------------- table editing ----------------
+
+  onTableKeyDown(event, cell) {
+    if (event.ctrlKey && event.key === "Enter") {
+      event.preventDefault();
+      this.insertTableRow(cell);
+      this.scheduleSync();
+    } else if (event.altKey && event.key === "Enter") {
+      event.preventDefault();
+      this.insertTableColumn(cell);
+      this.scheduleSync();
+    }
+  },
+
+  insertTableRow(cell) {
+    const row = cell.closest("tr");
+    const isHead = !!row.closest("thead");
+    if (isHead) {
+      // From the header, add a row at the top of the body.
+      const tbody = row.closest("table").querySelector("tbody")
+        || row.closest("table").appendChild(document.createElement("tbody"));
+      const count = row.children.length;
+      const tr = document.createElement("tr");
+      for (let i = 0; i < count; i++) {
+        tr.appendChild(document.createElement("td")).appendChild(document.createElement("br"));
+      }
+      tbody.prepend(tr);
+      return;
+    }
+    const copy = row.cloneNode(true);
+    Array.from(copy.children).forEach((td) => { td.textContent = ""; td.appendChild(document.createElement("br")); });
+    row.after(copy);
+  },
+
+  insertTableColumn(cell) {
+    const table = cell.closest("table");
+    const cellIndex = Array.from(cell.parentElement.children).indexOf(cell);
+    table.querySelectorAll("tr").forEach((tr) => {
+      const isHeadRow = !!tr.closest("thead");
+      const fresh = document.createElement(isHeadRow ? "th" : "td");
+      fresh.appendChild(document.createElement("br"));
+      const reference = tr.children[cellIndex + 1] || null;
+      tr.insertBefore(fresh, reference);
+    });
+  },
+
   onKeyDown(event) {
+    // Keystrokes inside an atom that is in source-edit mode.
     if (this.activeAtom) {
-      // Commit source editing; let normal newlines through otherwise.
       const ctrl = event.ctrlKey || event.metaKey;
       if (event.key === "Escape") {
         event.preventDefault(); this.commitAtom(false);
@@ -232,7 +338,14 @@ const App = {
       }
       return;
     }
-    // Shortcuts operating inside the continuous surface.
+    // Context: code area or table cell.
+    const codeArea = event.target.closest && event.target.closest(".md-code-area");
+    if (codeArea) { this.onCodeKeyDown(event, codeArea); return; }
+    const tableCell = event.target.closest && event.target.closest("th,td");
+    if (tableCell && (event.ctrlKey || event.altKey) && event.key === "Enter") {
+      this.onTableKeyDown(event, tableCell); return;
+    }
+    // Inline format shortcuts in the continuous surface.
     const ctrl = event.ctrlKey || event.metaKey;
     if (ctrl && !event.shiftKey) {
       const key = event.key.toLowerCase();
@@ -240,8 +353,6 @@ const App = {
       if (key === "i") { event.preventDefault(); this.wrapSelection("*", "*"); return; }
       if (key === "k") { event.preventDefault(); this.insertLink(); return; }
     }
-    // Ctrl+A in the single surface selects everything natively; nothing to do.
-    // Pressing Enter in a table cell is left to the browser for now.
   },
 };
 

@@ -25,43 +25,13 @@ html, body {
 }
 
 .doc {
-  max-width: 900px;
+  max-width: 1080px;
   margin: 0 auto;
-  padding: 24px 24px 200px;
+  padding: 28px 48px 220px;
 }
 
-.block {
-  position: relative;
-  padding: 2px 12px;
-  border-radius: 6px;
-  outline: none;
-  caret-color: var(--accent);
-}
-
-.block.is-editing {
-  white-space: pre-wrap;
-  word-break: break-word;
-  background: color-mix(in srgb, var(--accent) 3%, transparent);
-}
-
-.block:focus-visible:not(.is-editing) { outline: 1px solid var(--border); }
-.block.is-editing, .block[contenteditable='true'] { min-height: 1.7em; }
-.block-trailing:empty::before { content: '\200b'; }
-
-.block-trailing { min-height: 1.7em; }
-
-/* 窗口化时未挂载的占位块 */
-.block-placeholder {
-  cursor: text;
-  border-radius: 6px;
-}
-.block-placeholder:hover { background: var(--code-bg); }
-
-/* 专注模式：仅当前活动块高亮，其余变暗 */
-body.focus-mode .block:not(.block-active) {
-  opacity: 0.16;
-  transition: opacity 0.25s ease;
-}
+/* 文档表面：光标颜色 */
+#doc { outline: none; caret-color: var(--accent); }
 
 /* ---------------- 内置主题 ---------------- */
 
@@ -144,10 +114,10 @@ body[data-theme="dracula"] {
 }
 
 /* 暗色主题下代码块背景统一跟随变量 */
-body[data-theme="dark"] .codehilite,
-body[data-theme="night"] .codehilite,
-body[data-theme="monokai"] .codehilite,
-body[data-theme="dracula"] .codehilite { background: var(--codehilite-bg); }
+body[data-theme="dark"] .md-code,
+body[data-theme="night"] .md-code,
+body[data-theme="monokai"] .md-code,
+body[data-theme="dracula"] .md-code { background: var(--codehilite-bg); }
 
 p { margin: 0.45em 0; }
 
@@ -198,15 +168,41 @@ table { border-collapse: collapse; width: 100%; margin: 0.7em 0; }
 th, td { border: 1px solid var(--border); padding: 6px 12px; text-align: left; }
 th { background: var(--bg-secondary); }
 
-.codehilite {
-  border: 1px solid var(--border);
-  border-radius: 8px;
-  padding: 10px 14px;
-  overflow-x: auto;
+/* 代码块：无边框（去掉多余黑边），柔和背景区分 */
+.md-code {
+  position: relative;
+  margin: 0.8em 0;
   background: var(--codehilite-bg, var(--bg-secondary));
+  border-radius: 8px;
+  padding: 14px 16px 12px;
 }
-.codehilite pre { margin: 0; }
-.codehilite code { background: none; padding: 0; }
+.md-code-lang {
+  position: absolute;
+  top: 6px;
+  right: 12px;
+  font-size: 11px;
+  color: var(--text-secondary);
+  user-select: none;
+  letter-spacing: 0.04em;
+}
+.md-code-area {
+  margin: 0;
+  font-family: Consolas, 'JetBrains Mono', 'Courier New', monospace;
+  font-size: 13.5px;
+  line-height: 1.6;
+  white-space: pre-wrap;
+  outline: none;
+  tab-size: 4;
+}
+.md-code-area code {
+  background: none;
+  padding: 0;
+  font-size: inherit;
+  color: inherit;
+}
+
+/* 原子块（frontmatter/math/mermaid）点击编辑 */
+.md-atom { margin: 0.8em 0; border-radius: 8px; }
 
 .math-block, .mermaid { margin: 0.7em 0; }
 .diagram-error { color: var(--accent); font-size: 13px; }
@@ -220,8 +216,3 @@ th { background: var(--bg-secondary); }
   border-radius: 8px;
 }
 ::-webkit-scrollbar-thumb:hover { background: var(--text-secondary); }
-
-/* Keep generated line numbers separate from selectable source code. */
-pre.code-with-lines { display: flex; align-items: flex-start; white-space: normal; }
-pre.code-with-lines > code, pre.code-with-lines > .code-text { white-space: pre; min-width: 0; }
-.code-line-gutter { user-select: none; flex: 0 0 auto; white-space: pre; text-align: right; color: var(--text-secondary); padding-right: 1em; margin-right: 1em; border-right: 1px solid var(--border); }

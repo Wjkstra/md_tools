@@ -211,6 +211,7 @@ class WebPreview(QWebEngineView):
             f"window.__typewriter = {'true' if s.typewriter_mode else 'false'};"
             f"window.__autoBracket = {'true' if s.auto_bracket else 'false'};"
             f"window.__mermaid = {'true' if s.mermaid else 'false'};"
+            f"window.__tabSize = {int(s.tab_size)};"
             f"document.body.style.fontSize = {json.dumps(str(s.font_size) + 'px')};"
         )
 

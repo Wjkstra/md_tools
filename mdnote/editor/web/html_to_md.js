@@ -223,6 +223,14 @@
         // Complex block atom: restore its verbatim original Markdown.
         return attr(node, "data-md") != null ? attr(node, "data-md") : "";
       }
+      if (cls.includes("md-code")) {
+        // Always-editable code block: read the inner editor text and re-fence.
+        const area = node.querySelector(".md-code-area");
+        const label = (node.querySelector(".md-code-lang") || {}).textContent || "";
+        const lang = label.trim() === "text" ? "" : label.trim();
+        const body = area.textContent.replace(/\n$/, "");
+        return "```" + lang + "\n" + body + "\n```";
+      }
     }
     const tag = tagOf(node);
     switch (tag) {
