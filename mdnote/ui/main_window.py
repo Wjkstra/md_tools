@@ -21,7 +21,6 @@ from PySide6.QtWidgets import (
 from ..core.settings import settings_service
 from ..core.word_count import count_stats
 from .. import config
-from ..editor.webview import invalidate_render_cache
 from ..services import exporter, markdown_engine
 from .dialogs import CommandPalette, SettingsDialog
 from .editor_session import EditorSession
@@ -306,7 +305,6 @@ class MainWindow(QMainWindow):
         enabled = list(s.enabled_plugins)
         if enabled != self._enabled_plugins:
             errors = markdown_engine.reconfigure(enabled)
-            invalidate_render_cache()
             self._enabled_plugins = enabled
             for index in range(self.tabs.count()):
                 session = self.tabs.widget(index)

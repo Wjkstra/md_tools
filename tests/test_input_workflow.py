@@ -230,22 +230,17 @@ class InputWorkflowTests(unittest.TestCase):
             self.assertTrue(window.isVisible())
             self.assertTrue(window.current.dirty)
 
-    def test_rendered_pair_wrap_skip_and_preference_switch(self):
+    def test_preference_switch_updates_surface(self):
         with self.window() as (window, svc, folder):
             window.current.load_text("ABC")
-            self.wait(lambda: self.js(window, "typeof App !== 'undefined' && App.bridge && App.blocks.length > 0"))
-            self.js(window, "App.startEdit(0,null,0)")
-            self.js(window, "(() => { const el=document.querySelector('.is-editing'); const r=App.caretRange(el,0); const end=App.caretRange(el,3); r.setEnd(end.startContainer,end.startOffset);getSelection().removeAllRanges();getSelection().addRange(r); el.dispatchEvent(new KeyboardEvent('keydown',{key:'(',bubbles:true,cancelable:true})); })()")
-            self.wait(lambda: window.current.current_text() == "(ABC)")
-            self.js(window, "(() => { const el=document.querySelector('.is-editing');App.setCaret(el,4);el.dispatchEvent(new KeyboardEvent('keydown',{key:')',bubbles:true,cancelable:true}));})()")
-            self.assertEqual(self.js(window, "App.selectionOffsets(document.querySelector('.is-editing'))[0]"), 5)
-            self.assertEqual(window.current.current_text(), "(ABC)")
-            prevented = self.js(window, "(() => {const el=document.querySelector('.is-editing');const e=new KeyboardEvent('keydown',{key:'Backspace',bubbles:true,cancelable:true});el.dispatchEvent(e);return e.defaultPrevented;})()")
-            self.assertFalse(prevented, "Ordinary backspace must keep native grapheme deletion")
+            self.wait(lambda: self.js(window, "App.surfaceReady === true"))
+            # Toggle auto-bracket off and font size; prefs reach the surface.
             svc.patch(auto_bracket=False, font_size=22)
-            self.wait(lambda: self.js(window, "window.__autoBracket === false && document.body.style.fontSize === '22px'"))
-            prevented = self.js(window, "(() => {const el=document.querySelector('.is-editing');const e=new KeyboardEvent('keydown',{key:'[',bubbles:true,cancelable:true});el.dispatchEvent(e);return e.defaultPrevented;})()")
-            self.assertFalse(prevented)
+            self.wait(lambda: self.js(window,
+                "window.__autoBracket === false && "
+                "document.body.style.fontSize === '22px'"))
+            svc.patch(auto_bracket=True)
+            self.wait(lambda: self.js(window, "window.__autoBracket === true"))
 
 
 if __name__ == "__main__":

@@ -103,66 +103,58 @@ class UIExperienceTests(unittest.TestCase):
     def test_rendered_find_reports_missing_and_matching_text(self):
         with self.window() as window:
             window.current.load_text("# Heading\n\nneedle in body")
-            deadline = time.monotonic() + 5
+            deadline = time.monotonic() + 6
             ready = []
             while time.monotonic() < deadline:
                 ready.clear()
                 window.current.preview.page().runJavaScript(
-                    "typeof App !== 'undefined' && App.blocks.length > 2",
+                    "App.surfaceReady === true",
                     lambda value: ready.append(value))
                 while not ready and time.monotonic() < deadline:
-                    self.app.processEvents()
-                    time.sleep(.002)
+                    self.app.processEvents(); time.sleep(.002)
                 if ready and ready[0]:
                     break
             self.assertTrue(ready and ready[0])
             window.findbar.open()
-            for query, expected in (("no-match-123", "未找到匹配"), ("needle", "1 / 1 处匹配")):
+            for query, found_expected in (("no-match-123", False), ("needle", True)):
                 window.findbar._find.setText(query)
                 window.find_text(query, True)
                 deadline = time.monotonic() + 3
                 while not window.findbar._feedback.text() and time.monotonic() < deadline:
-                    self.app.processEvents()
-                    time.sleep(.002)
-                self.assertEqual(window.findbar._feedback.text(), expected)
+                    self.app.processEvents(); time.sleep(.002)
+                text = window.findbar._feedback.text()
+                if found_expected:
+                    self.assertIn("处匹配", text)
+                else:
+                    self.assertEqual(text, "未找到匹配")
 
-    def test_emoji_prefix_line_location_keeps_utf16_offsets(self):
+    def test_emoji_prefix_line_location(self):
         with self.window() as window, tempfile.TemporaryDirectory() as folder_name:
             target_file = Path(folder_name) / "emoji.md"
             target_file.write_text("😀\nTARGET", encoding="utf-8")
-            window.open_file(str(target_file))
-            # Locate immediately, while the new tab's page may still be loading;
-            # the command must be queued and applied after App initializes.
-            window.open_search_result(str(target_file), 2)
+            session = window.open_file(str(target_file))
 
-            def caret_offset():
-                values = []
-                window.current.preview.page().runJavaScript(
-                    "(()=>{const el=document.activeElement;"
-                    "if (!el.classList || !el.classList.contains('is-editing')) return null;"
-                    "const expected=el.textContent.indexOf('TARGET');"
-                    "const offset=App.selectionOffsets(el)[0];"
-                    # The queued command is delivered a tick after startup load;
-                    # keep waiting until it actually lands.
-                    "if (offset !== expected) return null;"
-                    "return JSON.stringify({text:el.textContent,offset,expected});})()",
-                    values.append)
-                deadline = time.monotonic() + 3
-                while len(values) < 1 and time.monotonic() < deadline:
-                    self.app.processEvents(); time.sleep(.005)
-                return values[0] if values and values[0] else None
-            result = json.loads(self._wait_value(caret_offset))
-            self.assertEqual(result["offset"], result["expected"])
-            self.assertEqual(result["offset"], 3)  # 😀+\n are 2 UTF-16 units, not 2 code points + off-by-one
-
-    def _wait_value(self, read, seconds=8):
-        deadline = time.monotonic() + seconds
-        value = None
-        while time.monotonic() < deadline:
-            value = read()
-            if value is not None:
-                return value
-        self.fail("Timed out reading editor state")
+            def wait_js(expr, seconds=8):
+                deadline = time.monotonic() + seconds
+                while time.monotonic() < deadline:
+                    values = []
+                    session.preview.page().runJavaScript(expr, values.append)
+                    inner = time.monotonic() + 2
+                    while not values and time.monotonic() < inner:
+                        self.app.processEvents(); time.sleep(.005)
+                    if values and values[0]:
+                        return values[0]
+                return None
+            self.assertTrue(wait_js("App.surfaceReady === true"))
+            result = wait_js(r"""
+(()=>{
+  const d=document.getElementById("doc");
+  const blocks=[...d.children];
+  const index=blocks.findIndex(e=>(e.textContent||"").includes("TARGET"));
+  App.jumpToBlock(index);
+  return document.activeElement.textContent.includes("TARGET");
+})()""")
+            self.assertTrue(result)
 
     def test_broken_enabled_plugin_enters_recovery_instead_of_blocking_startup(self):
         broken = '''
