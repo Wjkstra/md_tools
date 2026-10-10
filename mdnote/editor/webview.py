@@ -122,6 +122,22 @@ class LiveDocument:
         self.text = text
         self.model = build_model(text)
 
+    def set_surface_text(self, text: str) -> bool:
+        """Adopt full Markdown produced by editing the continuous surface.
+
+        Returns whether the text changed. Rebuilds the model and notifies the
+        session (marks dirty / schedules save) but does not snapshot per keystroke;
+        the surface's own undo handles history.
+        """
+        if text == self.get_text():
+            return False
+        self._draft = None
+        self.text = text
+        self.model = build_model(text)
+        self._render_cache.clear()
+        self.on_text_changed()
+        return True
+
     def get_text(self) -> str:
         if self._draft is not None:
             index, raw = self._draft
@@ -289,6 +305,16 @@ class Bridge(QObject):
         super().__init__()
         self._doc = doc
         self._get_doc_path = get_doc_path or (lambda: None)
+
+    @Slot(result=str)
+    def loadSurfaceHtml(self) -> str:
+        from ..services.surface import surface_html
+        return json.dumps(surface_html(self._doc.get_text(), self._doc.doc_base),
+                          ensure_ascii=False)
+
+    @Slot(str)
+    def updateSurfaceText(self, text: str) -> None:
+        self._doc.set_surface_text(text)
 
     @Slot(str)
     def recordTestResult(self, msg: str) -> None:
@@ -461,10 +487,11 @@ class WebPreview(QWebEngineView):
         return "light"
 
     def reload_blocks(self, focus: bool = False) -> None:
-        self.page().runJavaScript(
-            "typeof App !== 'undefined' && App.bridge && App.loadDocument("
-            + ("true" if focus else "false") + ");")
+        # Rebuild the continuous surface from the current document text.
+        self.setFocus()
+        self.run_app_script("App.loadSurface();")
 
     def focus_editor(self) -> None:
         self.setFocus()
-        self.page().runJavaScript("typeof App !== 'undefined' && App.bridge && App.focusEditor();")
+        self.page().runJavaScript(
+            "typeof App !== 'undefined' && App.bridge && App.loadSurface();")

@@ -421,20 +421,18 @@ class EditorSession(QWidget):
             def report(raw):
                 if not on_result:
                     return
-                # runJavaScript 对普通对象的自动转换在不同后端上不可靠（可能得到
-                # 空字符串），统一让页面端 JSON.stringify 后再解析。
+                # App.findText returns a JSON string; parse it.
                 try:
                     result = json.loads(raw) if raw else {}
                 except (TypeError, ValueError):
                     result = {}
                 total = int(result.get("total", 0))
-                active = int(result.get("active", 0))
-                message = f"{active} / {total} 处匹配" if total else ""
+                message = f"{total} 处匹配" if total else ""
                 on_result(bool(result.get("found")), message)
             self.preview.page().runJavaScript(
-                "typeof App !== 'undefined' && JSON.stringify(App.findDocument("
+                "App.findText("
                 + json.dumps(text, ensure_ascii=False) + ","
-                + ("true" if forward else "false") + "))",
+                + ("true" if forward else "false") + ")",
                 report,
             )
 
@@ -452,7 +450,7 @@ class EditorSession(QWidget):
     def jump_heading(self, block_index: int) -> None:
         model = build_model(self.current_text())
         if self.mode == "live":
-            self.editor_command("jumpTo", block_index)
+            self.editor_command("jumpToBlock", block_index)
         else:
             b = model.blocks[block_index]
             line = self.current_text()[: b.start].count("\n") + 1

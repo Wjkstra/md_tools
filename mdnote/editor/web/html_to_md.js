@@ -217,6 +217,13 @@
   // ------------------------------------------------ blocks -----------------
 
   function block(node) {
+    if (isElement(node)) {
+      const cls = (attr(node, "class") || "").split(/\s+/);
+      if (cls.includes("md-atom")) {
+        // Complex block atom: restore its verbatim original Markdown.
+        return attr(node, "data-md") != null ? attr(node, "data-md") : "";
+      }
+    }
     const tag = tagOf(node);
     switch (tag) {
       case "h1": case "h2": case "h3":
