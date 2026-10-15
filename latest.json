@@ -1,6 +1,6 @@
 {
-  "version": "0.2.1",
-  "notes": "本次更新内容：\n\n- 优化了使用体验\n- 多标签：同时打开多个文件，标签切换 / 关闭\n- 文件夹全文检索：按文件名与正文搜索，点击结果定位到具体行\n- 七套内置主题：浅色、深色、护眼、羊皮纸、深夜、Monokai、Dracula\n- 超长文档按需排版，仅渲染视口附近内容",
-  "url": "https://github.com/Wjkstra/md_tools/releases/download/v0.2.1/MdNote-Setup-0.2.1.exe",
-  "sha256": "bd7033919022b4bae6212c179ff87156c83bb4f2a909ec3c1e961dbd81002dc1"
+  "version": "0.2.2",
+  "notes": "本次更新内容：\n\n- 修复设置中更新地址为空白时检查更新报错“必须是有效的 HTTPS URL”的问题\n- 优化代码块：语言感知缩进、括号补全、语法高亮与行号\n- 表格 Ctrl+Enter 加行、Alt+Enter 加列\n- 渲染视图无边框、版面更宽、去除多余黑边\n- 多标签、全文检索、七套主题",
+  "url": "https://github.com/Wjkstra/md_tools/releases/download/v0.2.2/MdNote-Setup-0.2.2.exe",
+  "sha256": "2c4ec2361e7f467e1fda291fda510db1a911f0dad566c5b65eb4ddfd5f1639a9"
 }
