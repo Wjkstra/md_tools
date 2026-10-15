@@ -23,6 +23,7 @@ const App = {
     document.addEventListener("keyup", () => this.updateHeadingHint());
     document.addEventListener("beforeinput", (e) => this.onBeforeInput(e));
     document.addEventListener("input", (e) => this.onInput(e));
+    document.addEventListener("mousedown", (e) => this.onMouseDown(e), true);
     document.addEventListener("selectionchange", () => this.scheduleHint());
     document.addEventListener("paste",event=>{
       if(this.activeAtom) return;
@@ -40,6 +41,21 @@ const App = {
       }
     });
     this.loadSurface();
+  },
+
+  // Capture-phase mousedown delegation: reliably flips task checkboxes even
+  // though they live inside a contenteditable surface (where normal clicks
+  // only place the caret and never toggle the input).
+  onMouseDown(event) {
+    const cb = event.target.closest && event.target.closest("input.task-checkbox");
+    if (cb && document.getElementById("doc").contains(cb)) {
+      event.preventDefault();
+      event.stopPropagation();
+      const now = !cb.hasAttribute("checked");
+      cb.toggleAttribute("checked", now);
+      cb.checked = now;
+      this.scheduleSync();
+    }
   },
 
   // Floating H[x] hint shown to the left when the caret is at the start of a
@@ -184,19 +200,12 @@ const App = {
     doc.querySelectorAll(".md-code").forEach(block=>{this.setupCode(block);this.refreshCode(block);});
     this.applyCodePrefs();
     doc.querySelectorAll("table").forEach(table=>table.title="Ctrl+Enter 新增行 · Alt+Enter 新增列 · Tab 下一个单元格");
-    // Make task checkboxes interactive in the editable surface (the Markdown
-    // engine emits them disabled; click toggles [ ] <-> [x]).
+    // Task checkboxes are enabled for display; toggling is handled once by
+    // the capture-phase mousedown delegation (onMouseDown), which survives
+    // surface rebuilds without per-element rebinding.
     doc.querySelectorAll("input.task-checkbox").forEach((cb)=>{
       cb.removeAttribute("disabled");
-      if(!cb.dataset.wired){
-        cb.dataset.wired="1";
-        cb.addEventListener("click",(e)=>{
-          e.preventDefault();
-          cb.toggleAttribute("checked");
-          cb.checked=cb.hasAttribute("checked");
-          this.scheduleSync();
-        });
-      }
+      cb.setAttribute("tabindex", "-1");
     });
     doc.querySelectorAll(".atom-diagram").forEach((atom) => {
       if (window.mermaid && !atom.dataset.rendered) {
@@ -247,10 +256,13 @@ const App = {
   // Find the prose block the caret is currently in and convert it.
   formatCurrentBlock(typed) {
     const target = this.selectionElement();
+    // Browsers create <div> when exiting a list via Enter; treat div as prose
+    // too, but never treat #doc itself or structural wrappers as a block.
     const host = target && target.closest
-      ? target.closest("h1,h2,h3,h4,h5,h6,p,blockquote")
+      ? target.closest("h1,h2,h3,h4,h5,h6,p,blockquote,div")
       : null;
-    if (!host || host.closest(".md-code, table, .md-atom, li")) return;
+    if (!host || host.id === "doc" ||
+        host.closest(".md-code, table, .md-atom, li, ul, ol")) return;
     // Block markers convert immediately; inline marks only when the typed
     // character can close one (or when pasting multiple characters).
     const shouldInline = (typeof typed === "string" && typed.length > 1)
@@ -276,19 +288,20 @@ const App = {
   // Returns the new element when converted, otherwise null.
   tryConvertBlock(host) {
     if (host.tagName === "LI") return null; // already a list item
-    const text = host.textContent;
+    // Normalize non-breaking spaces (browsers keep typed trailing
+    // spaces as &nbsp;) so a marker followed by nbsp still converts.
+    const text = host.textContent.replace(/ /g, " ");
     let m;
     let tag = null, inner = text, isList = false, ordered = false;
-    // Marker complete as soon as the space after it is typed (Typora).
-    if ((m = /^\s{0,3}(#{1,6})[ \t]+([\s\S]*)$/.exec(text))) {
+    if ((m = /^\s{0,3}(#{1,6})[ \t ]+([\s\S]*)$/.exec(text))) {
       tag = "h" + m[1].length; inner = m[2];
-    } else if ((m = /^\s{0,3}>[ \t]?([\s\S]*)$/.exec(text))) {
+    } else if ((m = /^\s{0,3}>[ \t ]?([\s\S]*)$/.exec(text))) {
       tag = "blockquote"; inner = m[1];
-    } else if ((m = /^\s{0,3}[-+*][ \t]+([\s\S]*)$/.exec(text))) {
+    } else if ((m = /^\s{0,3}[-+*][ \t ]+([\s\S]*)$/.exec(text))) {
       tag = "ul"; isList = true;
-    } else if ((m = /^\s{0,3}\d{1,9}[.)][ \t]+([\s\S]*)$/.exec(text))) {
+    } else if ((m = /^\s{0,3}\d{1,9}[.)][ \t ]+([\s\S]*)$/.exec(text))) {
       tag = "ol"; isList = true; ordered = true;
-    } else if (/^\s{0,3}(?:-{3,}|\*{3,}|_{3,})\s*$/.test(text)) {
+    } else if (/^\s{0,3}(?:-{3,}|\*{3,}|_{3,})[ \t ]*$/.test(text)) {
       tag = "hr";
     }
     if (!tag) return null;

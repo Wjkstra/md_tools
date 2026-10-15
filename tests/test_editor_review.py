@@ -127,6 +127,24 @@ class LiveReviewTests(unittest.TestCase):
  const s=getSelection();s.removeAllRanges();s.addRange(r);return true;})
 (arguments[0])""".replace("arguments[0]", json.dumps(selector)))
 
+    def test_heading_converts_after_exiting_list(self):
+        # Exiting a list via Enter leaves a bare <div>; a heading marker typed
+        # there must still convert (regression: only <p> hosts were recognised).
+        self._load("- item\n")
+        self.js(r"""
+(()=>{const d=document.getElementById('doc');
+ // Reproduce the exact DOM the browser produces after Enter exits a list.
+ const div=document.createElement('div');div.appendChild(document.createElement('br'));
+ const end=d.querySelector('.surface-end');
+ d.insertBefore(div,end);
+ const r=document.createRange();r.selectNodeContents(div);r.collapse(true);
+ const s=getSelection();s.removeAllRanges();s.addRange(r);
+ document.execCommand('insertText',false,'# Title');
+ div.dispatchEvent(new InputEvent('input',{bubbles:true,inputType:'insertText',data:'e'}));
+})()""")
+        self.wait(lambda: self.js("!!document.querySelector('#doc h1')"))
+        self.assertEqual(self.js("document.querySelector('#doc h1').textContent"), "Title")
+
     def test_ctrl_number_sets_heading_and_backspace_demotes(self):
         self._load("普通标题\n")
         self.assertTrue(self._select_start("#doc p"))
@@ -149,16 +167,21 @@ class LiveReviewTests(unittest.TestCase):
         self.wait(lambda: self.js("!document.querySelector('#doc ul')"))
         self.assertEqual(self.js("HtmlToMd.serialize(document.getElementById('doc'))"), "列表项")
 
-    def test_task_checkbox_click_toggles(self):
+    def test_task_checkbox_mousedown_toggles(self):
         self._load("- [ ] 待办\n")
         self.wait(lambda: self.js("!!document.querySelector('.task-checkbox')"))
-        self.js("document.querySelector('.task-checkbox').click()")
+
+        def press():
+            # Capture-phase mousedown is what flips it inside contenteditable.
+            self.js("document.querySelector('.task-checkbox').dispatchEvent("
+                    "new MouseEvent('mousedown',{bubbles:true,cancelable:true}))")
+
+        press()
         self.wait(lambda: self.js(
             "document.querySelector('.task-checkbox').hasAttribute('checked')"))
         self.assertTrue(self.view.flush_surface())
         self.assertEqual(self.doc.get_text(), "- [x] 待办")
-        # Click again unchecks.
-        self.js("document.querySelector('.task-checkbox').click()")
+        press()
         self.wait(lambda: self.js(
             "!document.querySelector('.task-checkbox').hasAttribute('checked')"))
         self.assertTrue(self.view.flush_surface())
