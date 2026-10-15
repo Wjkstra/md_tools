@@ -50,10 +50,12 @@ MdNote 把「写作」与「排版」合二为一，提供两种由你掌控的�
 - 标题、加粗 / 斜体 / 删除线、行内代码、引用、分隔线、内嵌 HTML
 - 有序 / 无序 / 任务列表、链接、图片
 - 空格快捷输入：`# `、`- `、`> `、`1. `、`- [ ] `、` ``` `、`~~`
-- **代码块**：Pygments 语法高亮、行号开关、一键复制
+- **代码块**：正文直接编辑且隐藏围栏，语言选择、Pygments 离线高亮、行号开关、一键复制；
+  C/C++、Python、JavaScript 等语言提供自动缩进与括号补全，多行缩进保留原生撤销
 - **数学公式**：KaTeX 渲染行内 `$...$` 与块级 `$$...$$`
 - **Mermaid 图表**：流程图、时序图、甘特图、饼图等
-- **可视化表格**：单元格直接编辑、`Tab` 跨格导航、失焦自动回写；
+- **可视化表格**：单元格直接编辑、Tab 跨格导航、末格 Tab 新增行；
+  Ctrl+Enter 在下方新增行、Alt+Enter 在右侧新增列，光标跟随且保留列对齐；
   菜单可在下方插入行 / 右侧插入列、删除行列、设置列对齐
 - **`[toc]` 自动目录**：随文档更新，点击跳转
 - **YAML Front Matter**：头部元信息解析展示
@@ -73,7 +75,7 @@ MdNote 把「写作」与「排版」合二为一，提供两种由你掌控的�
     点击结果可打开文件并定位到具体行；后台线程执行，不阻塞界面
 - 状态栏：保存状态、字数 / 字符 / 行数、阅读时长、当前模式
 
-### 文件、图片与导出
+### 文件、图片、导出与更新
 
 - 新建 / 打开 / 保存 / 另存为 / 打开文件夹
 - 自动保存（可开关）、会话与最近文件恢复
@@ -81,6 +83,8 @@ MdNote 把「写作」与「排版」合二为一，提供两种由你掌控的�
 - 外部程序修改当前文件时提示重新载入
 - 导出 **HTML / PDF / PNG / JPEG**
 - 安装 **Pandoc** 后可导出 **Word (.docx) / ePub / LaTeX / ODT**
+- **自动更新**：启动后自动检查更新清单（可在设置中关闭），发现新版本经
+  **SHA256 校验**后下载安装；帮助菜单可手动「检查更新…」，清单地址可自定义
 
 ## 🚀 快速开始
 
@@ -112,36 +116,97 @@ python -m mdnote
 ### 运行测试
 
 ```bash
-python tests/test_editor.py          # 编辑器变换纯函数回归
-python tests/test_plugin_loader.py   # 插件加载器
-python tests/test_search_service.py  # 文件夹检索
-python -m unittest tests.test_live_editor   # WebEngine 集成测试（真实页面交互）
+# Python：单元测试 + WebEngine 集成测试（驱动真实页面交互）
+python -m unittest discover -s tests -p "test_*.py"
+
+# JavaScript：编辑器页面用例（Node 内置测试器，需 Node 18+）
+node --test tests/test_html_to_md.js tests/test_code_editing.js
 ```
+
+在无显示环境（CI、远程会话）中先切到离屏平台：
+
+```powershell
+$env:QT_QPA_PLATFORM = "offscreen"
+$env:QTWEBENGINE_CHROMIUM_FLAGS = "--disable-gpu"
+```
+
+测试写入临时目录，不操作用户文档；覆盖范围与最近一次结果见[测试文档](docs/testing.md)。
 
 ## 📦 构建与安装
 
-### 打包应用目录
+生成安装包共三步，**顺序不能颠倒**：先打包应用目录，再生成文件清单，最后编译安装程序。
+
+### 1. 打包应用目录
 
 ```bash
 pip install pyinstaller
 pyinstaller mdnote.spec --noconfirm
 ```
 
-产物位于 `dist/MdNote/`，运行其中的 `MdNote.exe`。
+产物位于 `dist/MdNote/`，先运行其中的 `MdNote.exe` 确认打包结果可用。
+`build/`、`dist/` 均为构建产物，已被 Git 忽略。
 
-### 生成安装程序
+### 2. 生成安装文件清单
 
-使用 NSIS 编译安装脚本：
+```bash
+python scripts/prepare_installer.py
+```
+
+脚本遍历 `dist/MdNote/`，读取 `mdnote/__init__.py` 的 `__version__`，生成
+`installer/generated-files.nsh`：安装与卸载的文件清单，以及安装包使用的版本号。
+
+- 该文件是**生成产物且已被 Git 忽略，克隆仓库后并不存在**，必须先生成再编译。
+- 每次重新打包应用后都要重跑，否则安装包内的文件清单与 `dist/MdNote/` 不一致。
+- 需要指定别的目录或输出文件时用
+  `python scripts/prepare_installer.py --dist <目录> --out <文件>`。
+
+### 3. 编译安装程序
+
+需要 [NSIS](https://nsis.sourceforge.io/Download) 3.0 或更高版本，并确保 `makensis`
+在 `PATH` 上（`makensis -VERSION` 可确认）：
 
 ```bash
 makensis installer/setup.nsi
 ```
 
-将生成单个安装程序，**安装时可自定义安装路径**，并创建开始菜单快捷方式、
-注册卸载程序；卸载时清理安装内容。
+产物是仓库根目录下的 `MdNote-Setup-<版本号>.exe`（例如 `MdNote-Setup-0.2.0.exe`）。
+**安装时可自定义安装路径**，并创建开始菜单快捷方式、注册卸载程序；卸载只删除
+应用自身的文件，保留用户创建的文档与资源。
 
 > 安装包体积主要来自 Qt WebEngine（Chromium 内核）运行时，
 > 这是高质量 HTML/CSS 排版所必需的部分；应用自身代码占比很小。
+
+静默安装可用于验证安装包（需要管理员权限；`/D` 必须是最后一个参数且不加引号，
+目标须为空目录或已有 MdNote 安装）：
+
+```powershell
+.\MdNote-Setup-0.2.0.exe /S /D=D:\tmp\MdNote-test
+D:\tmp\MdNote-test\Uninstall.exe /S
+```
+
+#### 编译报错对照
+
+| 报错 | 原因与处理 |
+| --- | --- |
+| `!include: could not find: "generated-files.nsh"` | 跳过了第 2 步。该文件是生成产物，克隆后不存在，先运行 `python scripts/prepare_installer.py` |
+| `Missing installer/generated-files.nsh. Run from the project root: ...` | 同上；`installer/setup.nsi` 在编译一开始就检查该文件，并提示这条信息 |
+| `Build directory must contain MdNote.exe` | `dist/MdNote/` 尚未打包或不完整，先完成第 1 步 |
+| `Can't open script "installer/setup.nsi"` | 当前目录不是仓库根目录；在根目录执行，或改用脚本的完整路径 |
+| `!include: could not find: "MUI2.nsh"` 等 NSIS 自带头文件 | `makensis` 来自不完整的 NSIS 安装，或版本低于 3.0（脚本用到 3.x 的预处理指令） |
+
+### 发布更新（可选）
+
+发布新版本时用安装包生成更新清单，上传后其 raw 地址即应用中的「更新清单 URL」：
+
+```bash
+python scripts/make_manifest.py --installer MdNote-Setup-0.2.0.exe \
+    --url https://gitee.com/<用户>/<仓库>/releases/download/v0.2.0/MdNote-Setup-0.2.0.exe \
+    --notes-file notes.md --out latest.json
+```
+
+脚本计算安装包 SHA256 并写入清单；`--version` 默认取 `mdnote/__init__.py` 的
+`__version__`，与之不符会直接报错。应用内置的清单地址在 `mdnote/config.py` 的
+`DEFAULT_MANIFEST_URL`，用户也可在设置里改用其它地址。
 
 ### 可选：Pandoc
 
@@ -160,6 +225,8 @@ makensis installer/setup.nsi
 | 撤销 / 重做 | `Ctrl+Z` / `Ctrl+Y` |
 | 加粗 / 斜体 / 删除线 | `Ctrl+B` / `Ctrl+I` / `Ctrl+Shift+X` |
 | 行内代码 / 链接 | `Ctrl+Shift+\`` / `Ctrl+K` |
+| 表格新增行 / 新增列（光标在单元格内） | Ctrl+Enter / Alt+Enter |
+| 代码缩进 / 取消缩进 / 返回正文 | Tab / Shift+Tab / Ctrl+Enter |
 | 插入代码块 / 表格 / 分隔线 / 图片 | `Ctrl+Shift+K` / 菜单 / 菜单 / `Ctrl+Shift+I` |
 | 切换任务项 / 编辑当前块源码 | `Ctrl+Shift+Enter` / `F2` |
 | 查找 / 替换 / 全选 | `Ctrl+F` / `Ctrl+H` / `Ctrl+Shift+A` |
@@ -187,17 +254,27 @@ makensis installer/setup.nsi
 
 ```
 mdnote/
+  __main__.py           python -m mdnote 入口
   app.py                QApplication / 单实例
-  config.py             用户数据与资源路径
-  core/                 设置、字数统计
-  editor/               块模型、编辑变换、源码编辑器、WebEngine 排版及 web 资源
-  services/             Markdown 引擎、图片服务、导出
-  ui/                   主窗口、侧边栏、状态栏、查找栏、对话框
+  config.py             用户数据与资源路径、更新清单地址
+  core/                 设置、文件读写、字数统计
+  editor/               块模型、源码编辑器、WebEngine 视图，web/ 为渲染页面
+  resources/            应用图标
+  services/             Markdown 引擎、净化、图片、检索、导出、插件、更新
+  ui/                   主窗口、标签会话、侧边栏、状态栏、查找栏、对话框、主题
 launch.py               打包入口
-tests/test_editor.py    编辑器变换回归测试
-installer/setup.nsi     NSIS 安装程序脚本
+scripts/
+  prepare_installer.py  生成 NSIS 安装文件清单（构建第 2 步）
+installer/setup.nsi     NSIS 安装程序脚本（构建第 3 步）
+tests/                  单元测试与 WebEngine 集成测试
+examples/plugins/       Python-Markdown 扩展示例
 docs/                   完整技术文档
+dist/MdNote/            PyInstaller 打包产物（构建生成，已被 Git 忽略）
 ```
+
+`mdnote/editor/web/` 是渲染页面本体：`index.html`、`app.js`、`code_editor.js`、
+`html_to_md.js`、`styles.css`；`vendor/` 内置 KaTeX、Mermaid 及其字体，代码高亮调色板
+直接写在 `styles.css`，因此排版与高亮完全离线可用。
 
 ## 📚 技术文档
 
@@ -228,13 +305,19 @@ docs/                   完整技术文档
 **Q：为什么安装包较大？**
 排版依赖 Qt WebEngine（Chromium 内核）运行时，这是固定成本；应用自身代码很小。
 
-## 🗺️ 规划方向
+**Q：编译安装包时报 `could not find: "generated-files.nsh"`？**
+说明跳过了生成文件清单这一步。`installer/generated-files.nsh` 是生成产物且已被 Git
+忽略，克隆仓库后并不存在：先运行 `python scripts/prepare_installer.py`，再
+`makensis installer/setup.nsi`。完整步骤与其它编译报错见上文「构建与安装」。
 
-- 超长文档的分块按需排版
-- 自动更新
+## 🗺️ 能力状态
 
-> **多标签、文件夹检索、超长文档按需排版、七套主题、自定义扩展**均已支持，见功能一览与
-> [扩展与插件开发](docs/plugin-development.md)。
+- **已支持**：多标签、文件夹检索、超长文档按需排版、七套主题、自定义扩展、
+  导出与自动更新，见上「功能一览」与[扩展与插件开发](docs/plugin-development.md)。
+- **发版流程**：打包 → 生成文件清单 → 编译安装 → 生成并上传更新清单，
+  见上文「构建与安装」；版本号以 `mdnote/__init__.py` 的 `__version__` 为准。
+- **验证边界**：打包与安装主要在 Windows 验证；macOS / Linux 可运行源码版，
+  安装包与自动更新尚未在非 Windows 平台验证。
 
 ## 📄 许可证
 

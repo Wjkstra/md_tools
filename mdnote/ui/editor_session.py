@@ -213,6 +213,9 @@ class EditorSession(QWidget):
     # ---------------- 保存 ----------------
 
     def do_save(self, save_as: bool) -> bool:
+        if self.mode == "live" and not self.preview.flush_surface():
+            self.host.alert("编辑页面尚未就绪，请稍后重试保存。")
+            return False
         target = self.file_path
         if not target or save_as:
             path, _ = QFileDialog.getSaveFileName(
@@ -276,6 +279,9 @@ class EditorSession(QWidget):
 
     def toggle_mode(self) -> None:
         if self.mode == "live":
+            if not self.preview.flush_surface():
+                self.host.alert("编辑页面尚未就绪，请稍后重试切换模式。")
+                return
             text = self.doc.get_text()
             if self.source.get_text() != text:
                 with QSignalBlocker(self.source):
@@ -378,17 +384,13 @@ class EditorSession(QWidget):
 
     def undo(self) -> None:
         if self.mode == "live":
-            if self.doc.undo():
-                self.preview.reload_blocks(focus=True)
-                self.on_content_changed()
+            self.editor_command("undo")
         else:
             self.source.undo()
 
     def redo(self) -> None:
         if self.mode == "live":
-            if self.doc.redo():
-                self.preview.reload_blocks(focus=True)
-                self.on_content_changed()
+            self.editor_command("redo")
         else:
             self.source.redo()
 

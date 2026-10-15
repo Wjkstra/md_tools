@@ -10,7 +10,7 @@ from pathlib import Path
 from typing import Callable
 
 from PySide6.QtCore import QObject, QUrl, Signal, Slot
-from PySide6.QtGui import QDesktopServices
+from PySide6.QtGui import QDesktopServices, QColor
 from PySide6.QtWebChannel import QWebChannel
 from PySide6.QtWebEngineCore import QWebEnginePage
 from PySide6.QtWebEngineWidgets import QWebEngineView
@@ -110,6 +110,16 @@ class Bridge(QObject):
         return json.dumps(surface_html(self._doc.get_text(), self._doc.doc_base),
                           ensure_ascii=False)
 
+    @Slot(str, str, result=str)
+    def highlightCode(self, language: str, source: str) -> str:
+        from ..services.surface import highlight_code
+        return highlight_code(source, language)
+
+    @Slot(str, result=str)
+    def renderMarkdown(self, source: str) -> str:
+        from ..services.surface import surface_html
+        return surface_html(source, self._doc.doc_base)
+
     @Slot(str)
     def updateSurfaceText(self, text: str) -> None:
         self._doc.set_surface_text(text)
@@ -144,6 +154,7 @@ class WebPreview(QWebEngineView):
 
     def __init__(self, doc: LiveDocument, get_doc_path=None, parent=None) -> None:
         super().__init__(parent)
+        self.setStyleSheet("QWebEngineView { border: 0; padding: 0; }")
         self._doc = doc
         self._bridge = Bridge(doc, get_doc_path)
         # App commands issued before the first page load are queued.
@@ -158,6 +169,33 @@ class WebPreview(QWebEngineView):
         self.page().loadFinished.connect(self._on_page_loaded)
         self.loadFinished.connect(lambda _ok: self.apply_prefs())
         self.page().navigationRequested.connect(self._on_navigation)
+
+    def flush_surface(self) -> bool:
+        """Capture pending input before a synchronous save or mode switch."""
+        if not self._app_ready:
+            return True  # The model is authoritative before the initial load.
+        from PySide6.QtCore import QEventLoop, QTimer
+        result = []
+        loop = QEventLoop()
+        timer = QTimer()
+        timer.setSingleShot(True)
+        timer.timeout.connect(loop.quit)
+
+        def received(value):
+            result.append(value)
+            loop.quit()
+
+        self.page().runJavaScript(
+            "typeof App !== 'undefined' && App.surfaceReady"
+            " ? App.captureMarkdown() : null", received)
+        timer.start(1200)
+        if not result:
+            loop.exec()
+        timer.stop()
+        if not result or not isinstance(result[0], str):
+            return False
+        self._doc.set_surface_text(result[0])
+        return True
 
     def run_app_script(self, script_body: str) -> None:
         """Run an ``App.*`` call now, or as soon as the page has initialized."""
@@ -204,6 +242,10 @@ class WebPreview(QWebEngineView):
     def apply_prefs(self) -> None:
         s = settings_service().current
         theme_id = self._theme_id(s.theme)
+        backgrounds = {"light": "#ffffff", "dark": "#0d1117",
+                       "solarized": "#fdf6e3", "sepia": "#f5ecd9",
+                       "night": "#000000", "monokai": "#272822", "dracula": "#282a36"}
+        self.page().setBackgroundColor(QColor(backgrounds[theme_id]))
         self.page().runJavaScript(
             "document.body.classList.toggle('focus-mode', "
             f"{'true' if s.focus_mode else 'false'});"
@@ -212,6 +254,8 @@ class WebPreview(QWebEngineView):
             f"window.__autoBracket = {'true' if s.auto_bracket else 'false'};"
             f"window.__mermaid = {'true' if s.mermaid else 'false'};"
             f"window.__tabSize = {int(s.tab_size)};"
+            f"window.__codeLineNumbers = {json.dumps(s.code_line_numbers)};"
+            "if (typeof App !== 'undefined') App.applyCodePrefs();"
             f"document.body.style.fontSize = {json.dumps(str(s.font_size) + 'px')};"
         )
 
@@ -227,9 +271,10 @@ class WebPreview(QWebEngineView):
 
     def reload_blocks(self, focus: bool = False) -> None:
         """Rebuild the continuous surface from the current document text."""
-        self.setFocus()
+        if focus:
+            self.setFocus()
         self.run_app_script("App.loadSurface();")
 
     def focus_editor(self) -> None:
         self.setFocus()
-        self.run_app_script("App.loadSurface();")
+        self.run_app_script("App.focusEditor();")

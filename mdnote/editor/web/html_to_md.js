@@ -136,6 +136,21 @@
 
   // ------------------------------------------------ code -------------------
 
+  // Native paste/Enter may produce DIV/BR nodes; textContent drops their breaks.
+  function codeText(area) {
+    function read(parent) {
+      const children=Array.from(parent.childNodes||[]);
+      return children.map((child,i)=>{
+        if(child.nodeType===3) return child.nodeValue;
+        const tag=tagOf(child);
+        if(tag==="br") return i===children.length-1 ? "" : "\n";
+        const text=read(child);
+        return (["div","p"].includes(tag)&&i>0?"\n":"")+text;
+      }).join("");
+    }
+    return read(area);
+  }
+
   function renderCode(pre) {
     // Pygments wraps source in <pre><code> with highlight spans; take plain text.
     const code = elementChildren(pre).find(function (child) {
@@ -165,7 +180,7 @@
   }
 
   function cellText(cell) {
-    const text = inlineChildren(cell).replace(/\n/g, "<br>").trim();
+    const text = inlineChildren(cell).trim().replace(/\|/g, "\\|").replace(/\n/g, "<br>");
     return text === "" ? " " : text;
   }
 
@@ -227,9 +242,14 @@
         // Always-editable code block: read the inner editor text and re-fence.
         const area = node.querySelector(".md-code-area");
         const label = (node.querySelector(".md-code-lang") || {}).textContent || "";
-        const lang = label.trim() === "text" ? "" : label.trim();
-        const body = area.textContent.replace(/\n$/, "");
-        return "```" + lang + "\n" + body + "\n```";
+        const lang = attr(node,"data-lang") ?? (label.trim() === "text" ? "" : label.trim());
+        const body = codeText(area);
+        // Preserve original fence style/info and unfinished blocks until edited.
+        if(attr(node,"data-source")===body && attr(node,"data-original-lang")===lang &&
+           attr(node,"data-md") != null) return attr(node,"data-md");
+        const runs = body.match(/\x60+/g) || [];
+        const fence = "\x60".repeat(runs.reduce((longest,run)=>Math.max(longest,run.length+1),3));
+        return fence + lang + "\n" + body + "\n" + fence;
       }
     }
     const tag = tagOf(node);
@@ -290,7 +310,7 @@
     return output.join("");
   }
 
-  const api = { serialize: serialize, block: block, inline: inline };
+  const api = { serialize: serialize, codeText: codeText, block: block, inline: inline };
 
   if (typeof module !== "undefined" && module.exports) {
     module.exports = api;

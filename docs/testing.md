@@ -1,64 +1,44 @@
 # 测试
 
-MdNote 有两层自动化测试：**纯函数单元测试**与 **WebEngine 集成测试**。
-运行前请先安装 `requirements.txt` 中的依赖，并在仓库根目录执行。
+在仓库根目录执行，Python 依赖见 requirements.txt；JavaScript 用例使用 Node 内置测试器。
 
-## 运行
+    python -m unittest discover -s tests -p "test_*.py"
+    node --test tests/test_html_to_md.js tests/test_code_editing.js
 
-```powershell
-# ① 编辑器变换纯函数回归（无需 GUI，毫秒级）
-python tests/test_editor.py
+无显示环境使用：
 
-# ② 插件加载器
-python tests/test_plugin_loader.py
+    $env:QT_QPA_PLATFORM = "offscreen"
+    $env:QTWEBENGINE_CHROMIUM_FLAGS = "--disable-gpu"
 
-# ③ WebEngine 集成测试（真实页面 + QWebChannel）
-python -m unittest tests.test_live_editor
-```
+## 2026-10-10 验证结果
 
-在 CI / 无显示环境中，集成测试会自动使用离屏平台：
+- Python：93 个 unittest 用例，92 个通过，1 个因 Windows 不支持创建目录符号链接而跳过。
+- JavaScript：23 个用例全部通过。
+- 全量 Python 回归使用临时设置文件，关闭自动更新检查，未修改用户设置。
+- Qt WebEngine 的 Chromium 沙箱保持启用；离屏运行产生 GPU/GLES 日志，退出码为 0。
+- 已查看真实页面的浅色宽屏与深色窄窗口截图，确认代码编辑区没有围栏符号与焦点边框。
 
-```powershell
-$env:QT_QPA_PLATFORM = "offscreen"
-$env:QTWEBENGINE_CHROMIUM_FLAGS = "--disable-gpu"
-python -m unittest tests.test_live_editor
-```
+## 编辑器回归覆盖
 
-## 当前结果
+tests/test_code_table_experience.py 使用真实 QWebEngineView / QWebChannel 与 QTest 键盘事件，覆盖：
 
-| 套件 | 内容 | 用例数 | 结果 |
-| --- | --- | --- | --- |
-| `tests/test_editor.py` | 块解析、智能回车、合并、缩进、空格触发、包裹、序列化往返 | 33 项断言 | ✅ 通过 |
-| `tests/test_plugin_loader.py` | 插件目录扫描、按名导入、扩展参与渲染、错误隔离 | 8 项断言 | ✅ 通过 |
-| `tests/test_search_service.py` | 文件名 / 正文检索、递归、跳过忽略目录、大小写、上限 | 11 项断言 | ✅ 通过 |
-| `tests/test_live_editor.py` | 真实 `QWebEngineView` + `QWebChannel` 的端到端交互 | 40 个测试 | ✅ 通过（约 30s） |
+- 代码围栏隐藏、正文按字面保存、语言选择与离线高亮。
+- C/C++ 自动缩进、括号内换行、Python 冒号缩进、继续换行不累加缩进。
+- 单行与多行 Tab / Shift+Tab、成对符号删除、已有引号跳过、原生撤销。
+- 高亮更新保持编辑 DOM、光标与撤销；返回编辑器不再重载页面。
+- 代码 Ctrl+A 局部全选、Ctrl+Enter 返回正文。
+- 多行代码粘贴保持纯文本、输入后立即读取、首尾空行、未闭合围栏与内嵌反引号。
+- 表格 Ctrl+Enter 新增行、Alt+Enter 新增列、光标跟随、继承列对齐、撤销。
+- Tab 跨格填写、末格创建新行、表头插行、菜单删除与对齐。
+- 代码插入菜单、输入围栏后回车转换、1680px / 600px 自适应布局、行号设置。
+- IME 组字事件不会触发自动配对；关闭自动配对设置后尊重用户选择。
 
-## 集成测试覆盖范围
+tests/test_code_editing.js 验证语言预设、注释/字符串语境、选区换行和多行缩进；
+tests/test_html_to_md.js 验证格式、表格空格与竖线、代码空行和安全围栏。
+其余 Python 套件覆盖源编辑器、保存与外部变更、多标签、搜索、设置、导出及服务安全。
 
-测试驱动真实页面（部分操作经 DOM 事件注入，部分用 Qt 原生键盘事件），覆盖：
+## 验证边界
 
-- **键盘输入与回车**：原生打字、回车、下一行继续输入；换行位置与光标
-- **块切换**：方向键在多块间上下移动、`Ctrl+Home/End`、横向越界进入相邻块
-- **智能回车**：段落 / 标题回车后的渲染、空行焦点与光标；列表续行、代码块内回车
-- **选区**：回车 / 空格替换选区、反向选区、多行粘贴替换选区
-- **表格**：`Tab` 遍历单元格、增删行列、列对齐保留、表格输入无需失焦即同步
-- **命令面板**：键盘搜索、过滤并执行命令
-- **焦点导航**：`F6` 区域循环、查找栏 `Esc`、侧边栏 `Esc` 返回编辑器
-- **保存**：保持焦点时手动保存与自动保存都能读到未失焦的输入
-- **撤销 / 重做**：草稿与提交后的历史、新输入使重做失效
-- **编码**：Emoji / 中文的 UTF-16 与码点偏移换算；组字期间回车不拆分
-
-测试写入临时目录，不操作用户文档；结束后清理临时页面与事件。
-
-## 未覆盖（边界说明）
-
-- 离屏环境存在 Chromium GPU 相关的上下文中的日志，不能据此判断真实显示性能
-- PDF / 图片 / Pandoc 导出、复杂表格的高级格式、图片粘贴的端到端不在当前自动化范围内
-- IME（输入法）组字通过事件级测试模拟，尚需不同输入法的人工验证
-
-## 添加测试
-
-- 新的纯函数变换：在 `tests/test_editor.py` 用现有 `check(...)` 形式添加断言
-- 新的页面交互：在 `tests/test_live_editor.py` 添加 `test_...`，通过 `self.js(...)`
-  驱动页面、`self.wait(predicate)` 等待异步结果
-- 新增块类型时，优先在纯函数层覆盖解析逻辑，再在集成层验证交互
+IME 用事件模拟覆盖，未用实体输入法逐一验证。离屏测试不能证明真实显卡上的输入延迟。
+代码语言预设提供缩进、符号配对与语法高亮，不提供编译器诊断或 IDE 补全。
+超过 100,000 字符的单个代码块显示纯文本，避免高亮阻塞界面。

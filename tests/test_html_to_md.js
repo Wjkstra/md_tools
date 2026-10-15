@@ -145,3 +145,20 @@ test("empty paragraphs become blank lines", () => {
   );
   assert.equal(md(doc), "第一段\n\n\n第三段");
 });
+
+test("code keeps leading/trailing blank lines and uses a safe fence", () => {
+  const body='\nconst s="'+String.fromCharCode(96).repeat(3)+'";\n';
+  const code=h("div", {class:"md-code","data-lang":"c"},
+    h("pre",{class:"md-code-area"},body));
+  assert.equal(md(root(code)),String.fromCharCode(96).repeat(4)+"c\n"+body+"\n"+String.fromCharCode(96).repeat(4));
+});
+test("code reads native DIV and BR line breaks without dropping blank lines", () => {
+  const code=h("div",{class:"md-code","data-lang":"c"},
+    h("pre",{class:"md-code-area"},"first",h("div",{},"second"),h("div",{},h("br"))));
+  assert.equal(HtmlToMd.codeText(code.querySelector(".md-code-area")),"first\nsecond\n");
+});
+test("empty table cells remain empty and literal pipes are escaped", () => {
+  const table=h("table",{},h("thead",{},h("tr",{},h("th",{},"A"))),
+    h("tbody",{},h("tr",{},h("td",{},h("br"))),h("tr",{},h("td",{},"one | two"))));
+  assert.equal(md(root(table)), "| A |\n| --- |\n|   |\n| one \\| two |");
+});

@@ -7,6 +7,9 @@ Unicode True
 !include "FileFunc.nsh"
 !include "WordFunc.nsh"
 !addincludedir "${__FILEDIR__}"
+!if ! /FileExists "generated-files.nsh"
+  !error "Missing installer/generated-files.nsh. Run from the project root: python scripts/prepare_installer.py (after PyInstaller), then makensis installer/setup.nsi."
+!endif
 !include "generated-files.nsh"
 
 Name "MdNote"

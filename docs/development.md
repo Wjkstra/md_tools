@@ -147,11 +147,15 @@ pyinstaller mdnote.spec --noconfirm
 ### 8.2 生成安装程序
 
 使用 NSIS 编译 `installer/setup.nsi`（支持用户选择安装目录、创建快捷方式、
-生成卸载程序）：
+生成卸载程序）。先生成安装与卸载文件清单，再编译：
 
 ```bash
+python scripts/prepare_installer.py
 makensis installer/setup.nsi
 ```
+每次重新打包应用后，都需重新运行 `python scripts/prepare_installer.py`。
+`installer/generated-files.nsh` 是生成文件，已被 Git 忽略；不能跳过生成步骤。
+
 
 产物为单个安装程序 exe。
 
