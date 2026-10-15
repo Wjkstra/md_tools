@@ -78,6 +78,45 @@ class LiveReviewTests(unittest.TestCase):
         self.js("App.loadSurface()")
         self.wait(lambda: self.js("App.surfaceReady"))
 
+    def _type(self, text):
+        """Insert text into the focused end paragraph and fire input."""
+        return self.js(r"""
+((typed)=>{
+  const d=document.getElementById("doc");
+  const end=d.querySelector(".surface-end") || (()=>{const p=document.createElement("p");d.appendChild(p);return p;})();
+  end.innerHTML="<br>";
+  const range=document.createRange(); range.selectNodeContents(end); range.collapse(false);
+  const sel=getSelection(); sel.removeAllRanges(); sel.addRange(range);
+  document.execCommand("insertText",false,typed);
+  end.dispatchEvent(new InputEvent("input",{bubbles:true,inputType:"insertText",data:typed.slice(-1)}));
+  return true;
+})(arguments[0])""".replace("arguments[0]", json.dumps(text)))
+
+    def test_typed_inline_markdown_renders_live(self):
+        self._load("")
+        self._type("this is **bold** and `code`")
+        self.wait(lambda: self.js(
+            "document.querySelectorAll('#doc strong').length===1 && "
+            "document.querySelectorAll('#doc code').length===1"))
+        self.js("App.captureMarkdown()")
+        self.assertIn("**bold**", self.doc.get_text())
+        self.assertIn("`code`", self.doc.get_text())
+
+    def test_typed_block_markdown_converts(self):
+        self._load("")
+        self._type("# Title")
+        self.wait(lambda: self.js("!!document.querySelector('#doc h1')"))
+        self._type("- item")
+        self.wait(lambda: self.js("!!document.querySelector('#doc ul li')"))
+        self._type("> quote")
+        self.wait(lambda: self.js("!!document.querySelector('#doc blockquote p')"))
+        self._type("---")
+        self.wait(lambda: self.js("document.querySelectorAll('#doc hr').length>=1"))
+        md = self.js("App.captureMarkdown()")
+        self.assertIn("# Title", md)
+        self.assertIn("- item", md)
+        self.assertIn("> quote", md)
+
     def test_one_contenteditable_with_no_inner_edit_blocks(self):
         self._load("# 标题\n\n普通**加粗**。\n\n- 甲\n- 乙\n")
         result = self.js(r"""

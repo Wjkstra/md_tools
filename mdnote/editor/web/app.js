@@ -168,6 +168,124 @@ const App = {
     if(area) this.refreshCode(area.closest(".md-code"));
     if (this.activeAtom) return; // atom edits sync on commit
     this.scheduleSync();
+    this.scheduleLiveFormat(event);
+  },
+
+  // ---------------- live Markdown conversion (Typora style) ----------------
+
+  formatTimer: null,
+
+  scheduleLiveFormat(event) {
+    // Only react to typing in prose blocks, never inside code/tables/atoms.
+    const target = this.selectionElement();
+    const host = target && target.closest ? target.closest("h1,h2,h3,h4,h5,h6,p,li,blockquote") : null;
+    if (!host || host.closest(".md-code, table, .md-atom")) return;
+    if (this.formatTimer) clearTimeout(this.formatTimer);
+    this.formatTimer = setTimeout(() => {
+      this.liveFormat(host);
+      this.tryConvertBlock(host);
+    }, 180);
+  },
+
+  // If a prose block starts with block Markdown, convert it in place. Built in
+  // JS (not the Python engine) because a single fragment without surrounding
+  // blank lines is treated as a plain paragraph by Markdown.
+  tryConvertBlock(host) {
+    if (host.tagName === "LI") return; // already a list item
+    const text = host.textContent;
+    let m;
+    let tag = null, inner = text, ordered = false;
+    if ((m = /^\s{0,3}(#{1,6})\s+([\s\S]+)$/.exec(text))) {
+      tag = "h" + m[1].length; inner = m[2];
+    } else if ((m = /^\s{0,3}>\s?([\s\S]*)$/.exec(text))) {
+      tag = "blockquote"; inner = m[1];
+    } else if ((m = /^\s{0,3}([-+*])\s+([\s\S]+)$/.exec(text))) {
+      tag = "ul";
+    } else if ((m = /^\s{0,3}\d{1,9}[.)]\s+([\s\S]+)$/.exec(text))) {
+      tag = "ol"; ordered = true;
+    } else if (/^\s{0,3}(?:-{3,}|\*{3,}|_{3,})\s*$/.test(text)) {
+      tag = "hr";
+    }
+    if (!tag) return;
+    let replacement;
+    if (tag === "hr") {
+      replacement = document.createElement("hr");
+    } else if (tag === "ul" || tag === "ol") {
+      replacement = document.createElement(tag);
+      const li = document.createElement("li");
+      li.innerHTML = MdInline.format(ordered ? m[1] : m[2]);
+      replacement.appendChild(li);
+    } else if (tag === "blockquote") {
+      replacement = document.createElement("blockquote");
+      const p = document.createElement("p");
+      p.innerHTML = MdInline.format(inner);
+      replacement.appendChild(p);
+    } else {
+      replacement = document.createElement(tag);
+      replacement.innerHTML = MdInline.format(inner);
+    }
+    host.replaceWith(replacement);
+    // Put the caret at the end of the new structural element.
+    const focusTarget = tag === "ul" || tag === "ol"
+      ? replacement.querySelector("li")
+      : tag === "blockquote" ? replacement.querySelector("p")
+      : tag === "hr" ? null : replacement;
+    if (focusTarget) {
+      focusTarget.focus?.();
+      const range = document.createRange();
+      range.selectNodeContents(focusTarget); range.collapse(false);
+      const selection = getSelection();
+      selection.removeAllRanges(); selection.addRange(range);
+    }
+    this.postProcess(document.getElementById("doc"));
+    this.scheduleSync();
+  },
+
+  // Convert inline marks inside one prose block while keeping the caret stable.
+  liveFormat(host) {
+    if (!host || !host.isConnected) return;
+    const before = host.textContent;
+    if (!/[`*_~]|\]\(/.test(before)) return;
+    // Offset of the caret measured as plain text length from the block start.
+    const selection = getSelection();
+    let caret = before.length;
+    if (selection.rangeCount) {
+      const probe = document.createRange();
+      probe.selectNodeContents(host);
+      try { probe.setEnd(selection.anchorNode, selection.anchorOffset); caret = probe.toString().length; }
+      catch (error) { caret = before.length; }
+    }
+    const html = MdInline.format(before);
+    if (html === host.innerHTML) return;
+    host.innerHTML = html;
+    this.restoreCaret(host, caret);
+    // postProcess handles KaTeX etc.; then reflect into the Python model.
+    this.postProcess(document.getElementById("doc"));
+    this.scheduleSync();
+  },
+
+  // Place the caret at the given plain-text offset within an element.
+  restoreCaret(root, offset) {
+    const walker = document.createTreeWalker(root, NodeFilter.SHOW_TEXT);
+    let node = walker.nextNode();
+    let remaining = Math.max(0, offset);
+    while (node) {
+      if (remaining <= node.length) {
+        const range = document.createRange();
+        range.setStart(node, remaining);
+        range.collapse(true);
+        const selection = getSelection();
+        selection.removeAllRanges(); selection.addRange(range);
+        return;
+      }
+      remaining -= node.length;
+      node = walker.nextNode();
+    }
+    // Offset past the end: collapse to end.
+    const range = document.createRange();
+    range.selectNodeContents(root); range.collapse(false);
+    const selection = getSelection();
+    selection.removeAllRanges(); selection.addRange(range);
   },
 
   // Wrap the current selection in inline marks; with no selection insert a pair.
