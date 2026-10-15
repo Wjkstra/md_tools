@@ -72,6 +72,9 @@ class SettingsService:
         for key, minimum, maximum in (("font_size", 12, 28), ("tab_size", 1, 8)):
             if key in values:
                 values[key] = max(minimum, min(maximum, values[key]))
+        # A blank/whitespace update source means "use the built-in default".
+        if isinstance(values.get("update_url"), str):
+            values["update_url"] = values["update_url"].strip()
         return AppSettings(**values)
 
     def _write(self, settings: AppSettings) -> None:

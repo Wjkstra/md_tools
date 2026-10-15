@@ -58,12 +58,13 @@ class MainWindow(QMainWindow):
         self._export_jobs = set()
         self._closing = False
 
-        # 自动更新（清单 URL：设置覆盖 > 内置默认）
+        # 自动更新（清单 URL：设置覆盖 > 内置默认）。空白值（空格/换行）等同未配置。
         from .. import __version__
         from ..services.updater import UpdateManager
 
         manifest_url = (
-            settings_service().current.update_url or config.DEFAULT_MANIFEST_URL
+            (settings_service().current.update_url or "").strip()
+            or config.DEFAULT_MANIFEST_URL
         )
         self.updater = UpdateManager(manifest_url, __version__, self)
         self._wire_updater()
@@ -297,7 +298,8 @@ class MainWindow(QMainWindow):
         if "recent_files" in changed:
             self._refresh_recent_menu()
         if changed & {"update_url", "auto_check_updates"}:
-            self.updater.set_manifest_url(s.update_url or config.DEFAULT_MANIFEST_URL)
+            self.updater.set_manifest_url(
+                (s.update_url or "").strip() or config.DEFAULT_MANIFEST_URL)
             if hasattr(self, "_update_check_timer"):
                 self._update_check_timer.stop()
             if s.auto_check_updates and self.updater._url:

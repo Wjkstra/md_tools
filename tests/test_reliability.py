@@ -46,6 +46,21 @@ class ReliabilityTests(unittest.TestCase):
             self.assertEqual(current.tab_size, 8)
             self.assertEqual(current.recent_files, ["ok.md"])
 
+    def test_blank_update_url_is_normalized_to_empty(self):
+        # Whitespace-only sources must not bypass the default-URL fallback and
+        # later fail HTTPS validation with "更新地址必须是有效的 HTTPS URL".
+        with tempfile.TemporaryDirectory() as folder:
+            target = Path(folder) / "settings.json"
+            for raw in ('{"update_url": "   "}', '{"update_url": "\\n"}',
+                        '{"update_url": " https://x.com "}'):
+                target.write_text(raw, encoding="utf-8")
+                with patch("mdnote.core.settings.settings_file", return_value=target):
+                    current = SettingsService().current
+                if "x.com" in raw:
+                    self.assertEqual(current.update_url, "https://x.com")
+                else:
+                    self.assertEqual(current.update_url, "")
+
     def test_empty_query_and_nonpositive_limit(self):
         with tempfile.TemporaryDirectory() as folder:
             (Path(folder) / "note.md").write_text("hello", encoding="utf-8")
