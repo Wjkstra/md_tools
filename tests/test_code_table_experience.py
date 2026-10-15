@@ -45,6 +45,20 @@ class CodeTableExperienceTests(unittest.TestCase):
         self.assertTrue(self.view.flush_surface())
         self.assertEqual(self.doc.get_text(), F+"c\n"+body+"\n"+F)
 
+    def test_multiple_languages_get_highlight_and_labels(self):
+        self.load("```c\nint x;\n```\n\n```python\ndef f():\n    pass\n```\n")
+        labels = self.js("JSON.stringify([...document.querySelectorAll('.md-code-lang')]"
+                         ".map(e=>e.textContent))")
+        self.assertEqual(json.loads(labels), ["c", "python"])
+        self.wait(lambda: self.js(
+            "document.querySelectorAll('.md-code-highlight .k,.md-code-highlight .kt').length>=2"))
+
+    def test_mermaid_atom_renders_svg(self):
+        self.load(F + "mermaid\ngraph TD; A-->B;\n" + F)
+        # The Mermaid atom carries the source and postProcess renders an SVG.
+        self.assertTrue(self.js("!!document.querySelector('.atom-diagram')"))
+        self.wait(lambda: self.js("!!document.querySelector('.atom-diagram svg')"), )
+
     def test_unclosed_code_keeps_last_line_and_original_fence(self):
         source = '~~~python\nfirst = 1\nlast = 2'
         self.load(source)
@@ -266,11 +280,14 @@ class CodeTableExperienceTests(unittest.TestCase):
         self.assertEqual(self.doc.get_text(),
                          '**粗体** 说明\n\n' + F + 'python\n\n' + F)
 
-    def test_typed_inline_code_closer_is_not_doubled(self):
+    def test_typed_inline_code_closer_renders_without_doubling(self):
+        # Immediate rendering: `a` becomes inline <code>; closer stepped over,
+        # serialized Markdown stays exact (not doubled).
         self.caret_at_end('')
-        self.type('\u0060a\u0060')
-        self.assertEqual(self.js("document.querySelector('#doc p').textContent"),
-                         '\u0060a\u0060')
+        self.type('`a`')
+        self.wait(lambda: self.js("!!document.querySelector('#doc p code')"))
+        self.assertEqual(self.js("document.querySelector('#doc p code').textContent"), 'a')
+        self.assertEqual(self.js("HtmlToMd.serialize(document.getElementById('doc'))"), '`a`')
 
     def test_fluid_width_no_focus_border_and_line_number_preference(self):
         self.code('int x;')

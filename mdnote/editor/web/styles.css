@@ -266,3 +266,21 @@ body[data-theme="monokai"] .md-code-highlight .s, body[data-theme="monokai"] .md
 }
 
 .md-code-highlight code { background: none; padding: 0; font: inherit; color: inherit; }
+
+/* 标题行首浮动 H[x] 提示 */
+#heading-hint {
+  position: fixed;
+  z-index: 50;
+  transform: translateY(-50%);
+  padding: 1px 7px;
+  font-size: 11px;
+  font-weight: 600;
+  font-family: Consolas, "JetBrains Mono", monospace;
+  letter-spacing: 0.03em;
+  color: var(--text-secondary);
+  background: var(--bg-secondary);
+  border: 1px solid var(--border);
+  border-radius: 5px;
+  pointer-events: none;
+  user-select: none;
+}

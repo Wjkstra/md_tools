@@ -85,10 +85,10 @@ class LiveReviewTests(unittest.TestCase):
   const d=document.getElementById("doc");
   const end=d.querySelector(".surface-end") || (()=>{const p=document.createElement("p");d.appendChild(p);return p;})();
   end.innerHTML="<br>";
-  const range=document.createRange(); range.selectNodeContents(end); range.collapse(false);
+  const range=document.createRange(); range.selectNodeContents(end); range.collapse(true);
   const sel=getSelection(); sel.removeAllRanges(); sel.addRange(range);
   document.execCommand("insertText",false,typed);
-  end.dispatchEvent(new InputEvent("input",{bubbles:true,inputType:"insertText",data:typed.slice(-1)}));
+  end.dispatchEvent(new InputEvent("input",{bubbles:true,inputType:"insertText",data:typed}));
   return true;
 })(arguments[0])""".replace("arguments[0]", json.dumps(text)))
 
@@ -98,7 +98,8 @@ class LiveReviewTests(unittest.TestCase):
         self.wait(lambda: self.js(
             "document.querySelectorAll('#doc strong').length===1 && "
             "document.querySelectorAll('#doc code').length===1"))
-        self.js("App.captureMarkdown()")
+        # Synchronously capture the surface into the Python model.
+        self.assertTrue(self.view.flush_surface())
         self.assertIn("**bold**", self.doc.get_text())
         self.assertIn("`code`", self.doc.get_text())
 
@@ -116,6 +117,60 @@ class LiveReviewTests(unittest.TestCase):
         self.assertIn("# Title", md)
         self.assertIn("- item", md)
         self.assertIn("> quote", md)
+
+    def _select_start(self, selector):
+        return self.js(r"""
+((sel)=>{const el=document.querySelector(sel);
+ if(!el) return false;
+ const first=el.firstChild && el.firstChild.nodeType===3 ? el.firstChild : el;
+ const r=document.createRange();r.setStart(first,0);r.collapse(true);
+ const s=getSelection();s.removeAllRanges();s.addRange(r);return true;})
+(arguments[0])""".replace("arguments[0]", json.dumps(selector)))
+
+    def test_ctrl_number_sets_heading_and_backspace_demotes(self):
+        self._load("普通标题\n")
+        self.assertTrue(self._select_start("#doc p"))
+        self.js("document.querySelector('#doc p').dispatchEvent("
+                "new KeyboardEvent('keydown',{key:'3',ctrlKey:true,bubbles:true,cancelable:true}))")
+        self.wait(lambda: self.js("!!document.querySelector('#doc h3')"))
+        self.assertEqual(self.js("document.querySelector('#doc h3').textContent"), "普通标题")
+        # Backspace at the heading start strips it back to a paragraph.
+        self.assertTrue(self._select_start("#doc h3"))
+        self.js("document.querySelector('#doc h3').dispatchEvent("
+                "new KeyboardEvent('keydown',{key:'Backspace',bubbles:true,cancelable:true}))")
+        self.wait(lambda: self.js("!document.querySelector('#doc h3')"))
+        self.assertEqual(self.js("document.querySelector('#doc p').textContent"), "普通标题")
+
+    def test_backspace_at_list_start_demotes_to_paragraph(self):
+        self._load("- 列表项\n")
+        self.assertTrue(self._select_start("#doc li"))
+        self.js("document.querySelector('#doc li').dispatchEvent("
+                "new KeyboardEvent('keydown',{key:'Backspace',bubbles:true,cancelable:true}))")
+        self.wait(lambda: self.js("!document.querySelector('#doc ul')"))
+        self.assertEqual(self.js("HtmlToMd.serialize(document.getElementById('doc'))"), "列表项")
+
+    def test_task_checkbox_click_toggles(self):
+        self._load("- [ ] 待办\n")
+        self.wait(lambda: self.js("!!document.querySelector('.task-checkbox')"))
+        self.js("document.querySelector('.task-checkbox').click()")
+        self.wait(lambda: self.js(
+            "document.querySelector('.task-checkbox').hasAttribute('checked')"))
+        self.assertTrue(self.view.flush_surface())
+        self.assertEqual(self.doc.get_text(), "- [x] 待办")
+        # Click again unchecks.
+        self.js("document.querySelector('.task-checkbox').click()")
+        self.wait(lambda: self.js(
+            "!document.querySelector('.task-checkbox').hasAttribute('checked')"))
+        self.assertTrue(self.view.flush_surface())
+        self.assertEqual(self.doc.get_text(), "- [ ] 待办")
+
+    def test_heading_hint_shown_at_start(self):
+        self._load("# 标题\n")
+        self.assertTrue(self._select_start("#doc h1"))
+        self.js("document.dispatchEvent(new Event('selectionchange'))")
+        self.wait(lambda: self.js(
+            "(()=>{const e=document.getElementById('heading-hint');"
+            "return e&&!e.hidden&&e.textContent==='H1';})()"))
 
     def test_one_contenteditable_with_no_inner_edit_blocks(self):
         self._load("# 标题\n\n普通**加粗**。\n\n- 甲\n- 乙\n")

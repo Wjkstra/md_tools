@@ -20,8 +20,10 @@ const App = {
     this.bridge = bridge;
     document.addEventListener("click", (e) => this.onClick(e));
     document.addEventListener("keydown", (e) => this.onKeyDown(e));
+    document.addEventListener("keyup", () => this.updateHeadingHint());
     document.addEventListener("beforeinput", (e) => this.onBeforeInput(e));
     document.addEventListener("input", (e) => this.onInput(e));
+    document.addEventListener("selectionchange", () => this.scheduleHint());
     document.addEventListener("paste",event=>{
       if(this.activeAtom) return;
       const area=event.target.closest?.(".md-code-area");
@@ -38,6 +40,51 @@ const App = {
       }
     });
     this.loadSurface();
+  },
+
+  // Floating H[x] hint shown to the left when the caret is at the start of a
+  // heading line (Typora-style).
+  hintTimer: null,
+  hintEl: null,
+  hintState: false,
+
+  ensureHint() {
+    if (this.hintEl) return this.hintEl;
+    const el = document.createElement("div");
+    el.id = "heading-hint";
+    el.hidden = true;
+    document.body.appendChild(el);
+    this.hintEl = el;
+    return el;
+  },
+  scheduleHint() {
+    if (this.hintTimer) return;
+    this.hintTimer = requestAnimationFrame(() => {
+      this.hintTimer = null;
+      this.updateHeadingHint();
+    });
+  },
+  updateHeadingHint() {
+    const el = this.ensureHint();
+    const selection = getSelection();
+    if (!selection.rangeCount || this.activeAtom) { el.hidden = true; return; }
+    const node = selection.anchorNode;
+    const host = node && (node.nodeType === 1 ? node : node.parentElement);
+    const heading = host && host.closest ? host.closest("h1,h2,h3,h4,h5,h6") : null;
+    const inCode = heading && heading.closest(".md-code, table, .md-atom");
+    // Only at the very start of the heading (plain-text offset 0).
+    const atStart = heading && this.caretOffsetIn(heading) === 0;
+    if (!inCode && atStart) {
+      const level = Number(heading.tagName[1]);
+      el.textContent = "H" + level;
+      const rect = heading.getBoundingClientRect();
+      el.hidden = false;
+      // Float just left of the heading (viewport coords; CSS position:fixed).
+      el.style.top = (rect.top + rect.height / 2) + "px";
+      el.style.left = Math.max(6, rect.left - el.offsetWidth - 14) + "px";
+    } else {
+      el.hidden = true;
+    }
   },
 
   // Auto-pair opening marks: typing one around a selection wraps it, otherwise
@@ -85,6 +132,11 @@ const App = {
       range.collapse(true);
       const selection = getSelection();
       selection.removeAllRanges(); selection.addRange(range);
+      // The pair is now complete: render any inline mark it closed.
+      requestAnimationFrame(() => {
+        const host = this.selectionElement()?.closest?.("h1,h2,h3,h4,h5,h6,p,blockquote");
+        if (host && !host.closest(".md-code,table,.md-atom,li")) this.liveFormat(host);
+      });
       return;
     }
     if (!(char in this.PAIRS)) {
@@ -132,6 +184,20 @@ const App = {
     doc.querySelectorAll(".md-code").forEach(block=>{this.setupCode(block);this.refreshCode(block);});
     this.applyCodePrefs();
     doc.querySelectorAll("table").forEach(table=>table.title="Ctrl+Enter 新增行 · Alt+Enter 新增列 · Tab 下一个单元格");
+    // Make task checkboxes interactive in the editable surface (the Markdown
+    // engine emits them disabled; click toggles [ ] <-> [x]).
+    doc.querySelectorAll("input.task-checkbox").forEach((cb)=>{
+      cb.removeAttribute("disabled");
+      if(!cb.dataset.wired){
+        cb.dataset.wired="1";
+        cb.addEventListener("click",(e)=>{
+          e.preventDefault();
+          cb.toggleAttribute("checked");
+          cb.checked=cb.hasAttribute("checked");
+          this.scheduleSync();
+        });
+      }
+    });
     doc.querySelectorAll(".atom-diagram").forEach((atom) => {
       if (window.mermaid && !atom.dataset.rendered) {
         atom.dataset.rendered = "1";
@@ -143,6 +209,7 @@ const App = {
         } catch (e) { /* keep source visible */ }
       }
     });
+    this.updateHeadingHint();
   },
 
   // ------------------------------------------------ sync -------------------
@@ -168,77 +235,106 @@ const App = {
     if(area) this.refreshCode(area.closest(".md-code"));
     if (this.activeAtom) return; // atom edits sync on commit
     this.scheduleSync();
-    this.scheduleLiveFormat(event);
+    // Convert immediately (synchronous) so markers never linger.
+    this.formatCurrentBlock(event.data);
+    this.scheduleHint();
   },
 
-  // ---------------- live Markdown conversion (Typora style) ----------------
+  // Characters that can CLOSE an inline mark; only they trigger an inline
+  // re-render (Typora keeps raw markdown visible while you type the inside).
+  INLINE_CLOSERS: new Set(["*", "_", "~", "`", ")", "]"]),
 
-  formatTimer: null,
-
-  scheduleLiveFormat(event) {
-    // Only react to typing in prose blocks, never inside code/tables/atoms.
+  // Find the prose block the caret is currently in and convert it.
+  formatCurrentBlock(typed) {
     const target = this.selectionElement();
-    const host = target && target.closest ? target.closest("h1,h2,h3,h4,h5,h6,p,li,blockquote") : null;
-    if (!host || host.closest(".md-code, table, .md-atom")) return;
-    if (this.formatTimer) clearTimeout(this.formatTimer);
-    this.formatTimer = setTimeout(() => {
-      this.liveFormat(host);
-      this.tryConvertBlock(host);
-    }, 180);
+    const host = target && target.closest
+      ? target.closest("h1,h2,h3,h4,h5,h6,p,blockquote")
+      : null;
+    if (!host || host.closest(".md-code, table, .md-atom, li")) return;
+    // Block markers convert immediately; inline marks only when the typed
+    // character can close one (or when pasting multiple characters).
+    const shouldInline = (typeof typed === "string" && typed.length > 1)
+      || (typed && this.INLINE_CLOSERS.has(typed));
+    this.formatHost(host, shouldInline);
+  },
+
+  // Run inline + structural conversion for one host; returns the (possibly
+  // replaced) element that now owns the text.
+  formatHost(host, allowInline) {
+    if (!host || !host.isConnected) return host;
+    // Block conversion first: it builds the new element with already
+    // formatted inline content.
+    const converted = this.tryConvertBlock(host);
+    if (converted) return converted;
+    if (allowInline) this.liveFormat(host);
+    return host;
   },
 
   // If a prose block starts with block Markdown, convert it in place. Built in
   // JS (not the Python engine) because a single fragment without surrounding
   // blank lines is treated as a plain paragraph by Markdown.
+  // Returns the new element when converted, otherwise null.
   tryConvertBlock(host) {
-    if (host.tagName === "LI") return; // already a list item
+    if (host.tagName === "LI") return null; // already a list item
     const text = host.textContent;
     let m;
-    let tag = null, inner = text, ordered = false;
-    if ((m = /^\s{0,3}(#{1,6})\s+([\s\S]+)$/.exec(text))) {
+    let tag = null, inner = text, isList = false, ordered = false;
+    // Marker complete as soon as the space after it is typed (Typora).
+    if ((m = /^\s{0,3}(#{1,6})[ \t]+([\s\S]*)$/.exec(text))) {
       tag = "h" + m[1].length; inner = m[2];
-    } else if ((m = /^\s{0,3}>\s?([\s\S]*)$/.exec(text))) {
+    } else if ((m = /^\s{0,3}>[ \t]?([\s\S]*)$/.exec(text))) {
       tag = "blockquote"; inner = m[1];
-    } else if ((m = /^\s{0,3}([-+*])\s+([\s\S]+)$/.exec(text))) {
-      tag = "ul";
-    } else if ((m = /^\s{0,3}\d{1,9}[.)]\s+([\s\S]+)$/.exec(text))) {
-      tag = "ol"; ordered = true;
+    } else if ((m = /^\s{0,3}[-+*][ \t]+([\s\S]*)$/.exec(text))) {
+      tag = "ul"; isList = true;
+    } else if ((m = /^\s{0,3}\d{1,9}[.)][ \t]+([\s\S]*)$/.exec(text))) {
+      tag = "ol"; isList = true; ordered = true;
     } else if (/^\s{0,3}(?:-{3,}|\*{3,}|_{3,})\s*$/.test(text)) {
       tag = "hr";
     }
-    if (!tag) return;
+    if (!tag) return null;
+    // Caret offset within the block before replacement (plain-text length).
+    const caret = this.caretOffsetIn(host);
+    const markerLen = text.length - inner.length;
+    const newCaret = Math.max(0, caret - markerLen);
+
     let replacement;
     if (tag === "hr") {
       replacement = document.createElement("hr");
-    } else if (tag === "ul" || tag === "ol") {
+    } else if (isList) {
       replacement = document.createElement(tag);
       const li = document.createElement("li");
-      li.innerHTML = MdInline.format(ordered ? m[1] : m[2]);
+      li.innerHTML = MdInline.format(ordered ? m[1] : m[1]) || "<br>";
       replacement.appendChild(li);
     } else if (tag === "blockquote") {
       replacement = document.createElement("blockquote");
       const p = document.createElement("p");
-      p.innerHTML = MdInline.format(inner);
+      p.innerHTML = MdInline.format(inner) || "<br>";
       replacement.appendChild(p);
     } else {
       replacement = document.createElement(tag);
-      replacement.innerHTML = MdInline.format(inner);
+      replacement.innerHTML = MdInline.format(inner) || "<br>";
     }
     host.replaceWith(replacement);
-    // Put the caret at the end of the new structural element.
-    const focusTarget = tag === "ul" || tag === "ol"
-      ? replacement.querySelector("li")
+    const focusTarget = isList ? replacement.querySelector("li")
       : tag === "blockquote" ? replacement.querySelector("p")
       : tag === "hr" ? null : replacement;
-    if (focusTarget) {
-      focusTarget.focus?.();
-      const range = document.createRange();
-      range.selectNodeContents(focusTarget); range.collapse(false);
-      const selection = getSelection();
-      selection.removeAllRanges(); selection.addRange(range);
-    }
+    if (focusTarget) this.restoreCaret(focusTarget, newCaret);
     this.postProcess(document.getElementById("doc"));
     this.scheduleSync();
+    return replacement;
+  },
+
+  caretOffsetIn(host) {
+    const selection = getSelection();
+    if (!selection.rangeCount) return host.textContent.length;
+    const probe = document.createRange();
+    probe.selectNodeContents(host);
+    try {
+      probe.setEnd(selection.anchorNode, selection.anchorOffset);
+      return probe.toString().length;
+    } catch (error) {
+      return host.textContent.length;
+    }
   },
 
   // Convert inline marks inside one prose block while keeping the caret stable.
@@ -246,21 +342,11 @@ const App = {
     if (!host || !host.isConnected) return;
     const before = host.textContent;
     if (!/[`*_~]|\]\(/.test(before)) return;
-    // Offset of the caret measured as plain text length from the block start.
-    const selection = getSelection();
-    let caret = before.length;
-    if (selection.rangeCount) {
-      const probe = document.createRange();
-      probe.selectNodeContents(host);
-      try { probe.setEnd(selection.anchorNode, selection.anchorOffset); caret = probe.toString().length; }
-      catch (error) { caret = before.length; }
-    }
+    const caret = this.caretOffsetIn(host);
     const html = MdInline.format(before);
     if (html === host.innerHTML) return;
     host.innerHTML = html;
     this.restoreCaret(host, caret);
-    // postProcess handles KaTeX etc.; then reflect into the Python model.
-    this.postProcess(document.getElementById("doc"));
     this.scheduleSync();
   },
 
@@ -704,7 +790,90 @@ const App = {
       if (key === "b") { event.preventDefault(); this.wrapSelection("**", "**"); return; }
       if (key === "i") { event.preventDefault(); this.wrapSelection("*", "*"); return; }
       if (key === "k") { event.preventDefault(); this.insertLink(); return; }
+      // Ctrl+1..6: turn the current block into that heading (0 -> paragraph).
+      const num = Number(event.key);
+      if ((num >= 1 && num <= 6) || (event.key === "0")) {
+        event.preventDefault();
+        this.setHeadingLevel(event.key === "0" ? 0 : num);
+        return;
+      }
     }
+    // Backspace at the very start of a structural block: strip its format
+    // first (Typora), instead of deleting the line / merging immediately.
+    if (event.key === "Backspace" && !ctrl && !event.altKey) {
+      if (this.backspaceStripFormat()) { event.preventDefault(); return; }
+    }
+  },
+
+  // Convert the block the caret is in to a heading of `level` (0 = paragraph).
+  setHeadingLevel(level) {
+    const target = this.selectionElement();
+    const host = target && target.closest
+      ? target.closest("h1,h2,h3,h4,h5,h6,p,li,blockquote") : null;
+    if (!host || host.closest(".md-code, table, .md-atom")) return;
+    const offset = this.caretOffsetIn(host);
+    let text = host.textContent;
+    // Normalise to plain text first (strip any list/quote/heading wrapper).
+    let insertion;
+    if (level === 0) {
+      insertion = document.createElement("p");
+    } else {
+      insertion = document.createElement("h" + level);
+    }
+    insertion.innerHTML = MdInline.format(text) || "<br>";
+    // If inside a list/blockquote, replace the whole structural wrapper.
+    const wrapper = host.closest("ul,ol") || (host.tagName === "P" && host.parentElement.tagName === "BLOCKQUOTE" ? host.parentElement : host);
+    wrapper.replaceWith(insertion);
+    this.restoreCaret(insertion, offset);
+    this.postProcess(document.getElementById("doc"));
+    this.scheduleSync();
+  },
+
+  // Return true (and strip the format) when Backspace is pressed with the caret
+  // at the start of a heading/list/quote block.
+  backspaceStripFormat() {
+    const target = this.selectionElement();
+    if (!target || !target.closest) return false;
+    const selection = getSelection();
+    if (!selection.isCollapsed || selection.anchorOffset !== 0) {
+      // caret may be in a child node at its start; check global offset 0.
+      if (this.caretOffsetIn(target.closest("#doc")) !== 0) return false;
+    }
+    const host = target.closest("h1,h2,h3,h4,h5,h6,li,blockquote");
+    if (!host || host.closest(".md-code, table, .md-atom")) return false;
+    // Must be at the very start of THIS block's text.
+    if (this.caretOffsetIn(host) !== 0) return false;
+    if (/^H[1-6]$/.test(host.tagName)) {
+      this._demoteTo(host, "p");
+      return true;
+    }
+    if (host.tagName === "LI") {
+      this._demoteListItem(host);
+      return true;
+    }
+    if (host.tagName === "BLOCKQUOTE") {
+      this._demoteTo(host.querySelector("p") || host, "p", host);
+      return true;
+    }
+    return false;
+  },
+
+  _demoteTo(host, tagName, whole) {
+    const node = whole || host;
+    const p = document.createElement(tagName);
+    p.innerHTML = host.innerHTML || "<br>";
+    node.replaceWith(p);
+    this.restoreCaret(p, 0);
+    this.scheduleSync();
+  },
+
+  _demoteListItem(li) {
+    const list = li.closest("ul,ol");
+    const p = document.createElement("p");
+    p.innerHTML = li.innerHTML || "<br>";
+    list.replaceWith(p);
+    this.restoreCaret(p, 0);
+    this.scheduleSync();
   },
 };
 

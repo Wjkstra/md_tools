@@ -69,7 +69,22 @@
   }
 
   function inlineChildren(node) {
-    return children(node).map(inline).join("");
+    const nodes = children(node);
+    let out = "";
+    nodes.forEach(function (child, i) {
+      let piece = inline(child);
+      // The Markdown engine emits "<br />\n" where the newline is only source
+      // formatting (the <br> already is the break). Drop that one newline so a
+      // soft line break is not serialized as two.
+      if (tagOf(child) === "br" && i + 1 < nodes.length) {
+        const next = nodes[i + 1];
+        if (next.nodeType === 3 && next.nodeValue.charAt(0) === "\n") {
+          next.nodeValue = next.nodeValue.replace(/^\n/, "");
+        }
+      }
+      out += piece;
+    });
+    return out;
   }
 
   // A blank structural line: empty or just a <br>.

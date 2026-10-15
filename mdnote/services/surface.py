@@ -140,13 +140,28 @@ def _render_block(block) -> str:
 
 
 def surface_html(text: str, doc_base: str | None = None) -> str:
-    """Render the whole document as flat HTML for the continuous surface."""
+    """Render the whole document as flat HTML for the continuous surface.
+
+    Inter-block blank lines beyond the standard single paragraph break are
+    emitted as empty editable paragraphs so they survive a surface -> Markdown
+    round trip (otherwise switching modes would collapse them).
+    """
     model = build_model(text)
     parts: list[str] = []
-    for block in model.blocks:
+    blocks = model.blocks
+    gap_blank = '<p><br></p>'
+    for i, block in enumerate(blocks):
         if block.trailing:
-            # An editable trailing line: lets the caret sit at document end.
+            # Preserve any blank lines between the last content and the end.
+            gap = model.gaps[i - 1] if i > 0 else 0
+            extra = max(0, gap - 2)
+            parts.append(gap_blank * extra)
             parts.append('<p class="surface-end"><br></p>')
             continue
         parts.append(_render_block(block))
+        # Blank paragraphs between this block and the next.
+        if i + 1 < len(blocks):
+            gap = model.gaps[i]
+            if not blocks[i + 1].trailing:
+                parts.append(gap_blank * max(0, gap - 2))
     return "".join(parts)
