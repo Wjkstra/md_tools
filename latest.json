@@ -1,6 +1,6 @@
 {
-  "version": "0.3.3",
-  "notes": "本次更新内容：\n\n- 修复应用启动瞬间编辑区域短暂黑屏的问题\n- 保留 0.3.2 的启动修复（部分电脑无法打开）及连续表面即时渲染等全部能力",
-  "url": "https://github.com/Wjkstra/md_tools/releases/download/v0.3.3/MdNote-Setup-0.3.3.exe",
-  "sha256": "fcd6f1597a22ca52e3440f3d10bcbea6e5d71645d3b3ae14ed6a406716979cb3"
+  "version": "0.3.4",
+  "notes": "本次更新内容：\n\n- 修复关闭标签/退出窗口可能丢失未同步输入的问题（含公式、Mermaid 等块的编辑）\n- 修复列表项转正文或标题时误删其它列表项的问题\n- 修复跨文档引用定义与脚注在保存时丢失的问题\n- 保留有序列表起始编号与嵌套层级\n- 修复深色主题正文白底、Mermaid 开关不生效",
+  "url": "https://github.com/Wjkstra/md_tools/releases/download/v0.3.4/MdNote-Setup-0.3.4.exe",
+  "sha256": "91a3b303f04cb368c4fc4bc024420be53b8cf9653750000f45f97a5f75d55777"
 }
