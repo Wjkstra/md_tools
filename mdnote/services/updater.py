@@ -162,7 +162,9 @@ class UpdateManager(QObject):
         try:
             if reply.error() != QNetworkReply.NetworkError.NoError:
                 raise ValueError(f"网络错误：{reply.errorString()}")
-            _https_url(reply.url().toString())
+            # QUrl's display format decodes %20 to spaces, including in GitHub
+            # release redirects. Validate the wire URL rather than display text.
+            _https_url(reply.url().toString(QUrl.ComponentFormattingOption.FullyEncoded))
             release = parse_manifest(bytes(reply.readAll()))
             newer = compare_versions(release.version, self._current)
         except (ValueError, UnicodeError, TypeError) as exc:
@@ -236,7 +238,7 @@ class UpdateManager(QObject):
             self._finish_download(f"下载失败：{reply.errorString()}")
             return
         try:
-            _https_url(reply.url().toString())
+            _https_url(reply.url().toString(QUrl.ComponentFormattingOption.FullyEncoded))
         except ValueError as exc:
             self._finish_download(str(exc))
             return

@@ -1,6 +1,6 @@
 {
-  "version": "0.3.0",
-  "notes": "本次更新内容：\n\n- 渲染后模式改为 Typora 式所见即所得：输入 Markdown 即时渲染\n- 标题 #、列表 -、引用 >、分隔线等块标记即时转换；Ctrl+1~6 快速设置标题\n- 代码块语言联想选择（输入 c 提示 C/C++/C# 等），支持默认语言设置\n- 代码块多语言语法高亮、自动缩进与括号补全；Mermaid 图表直接渲染\n- 任务框可点击勾选/取消；行首退格先去除格式\n- 正文段落首行缩进；表格 Ctrl+Enter 加行、Alt+Enter 加列\n- 修复模式切换多余回车、空白更新地址报错等问题",
-  "url": "https://github.com/Wjkstra/md_tools/releases/download/v0.3.0/MdNote-Setup-0.3.0.exe",
-  "sha256": "6625f186b567aa0ba628a5c1fc60eebd8b8d95604a9c9c8540a28f7c6b329607"
+  "version": "0.3.1",
+  "notes": "本次更新内容：\n\n- 修复部分网络环境下检查更新/下载因 GitHub 重定向 URL 含编码空格而失败的问题\n- 保留连续表面即时渲染、代码块语言联想、任务勾选等 0.3.0 全部能力",
+  "url": "https://github.com/Wjkstra/md_tools/releases/download/v0.3.1/MdNote-Setup-0.3.1.exe",
+  "sha256": "6bc36cac863a2fffd4a12797f1c654e2e718c6119a7f42f8dd2f616fca68f7ce"
 }

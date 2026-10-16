@@ -244,6 +244,46 @@ class UpdateSafetyTests(unittest.TestCase):
         self.assertEqual(network.requests, [])
         self.assertEqual(len(failures), 1)
 
+    def test_encoded_manifest_redirect_is_validated_without_decoding_spaces(self):
+        raw = json.dumps({"version": "9.0.0", "url": self.release.url,
+                          "sha256": self.release.sha256}).encode()
+        reply = Reply(raw, "https://updates.invalid/release%20notes/latest.json?key=a%20b")
+        self.manager._nam = Network(reply)
+        failures, releases = [], []
+        self.manager.check_failed.connect(failures.append)
+        self.manager.update_available.connect(releases.append)
+        self.manager.check()
+        reply.finished.emit()
+        self.assertEqual(failures, [])
+        self.assertEqual(len(releases), 1)
+
+    def test_github_download_redirect_accepts_encoded_content_disposition(self):
+        address = ("https://release-assets.githubusercontent.com/asset"
+                   "?response-content-disposition=attachment%3B%20filename%3DMdNote.exe")
+        reply = Reply(self.payload, address)
+        self.manager._nam = Network(reply)
+        self.manager.download()
+        reply.finished.emit()
+        self.assertEqual(self.failures, [])
+        self.assertEqual(len(self.success), 1)
+        self.assertEqual(Path(self.success[0]).read_bytes(), self.payload)
+
+    def test_encoded_redirect_does_not_bypass_https_or_credentials_checks(self):
+        addresses = ("http://updates.invalid/MdNote%20Setup.exe",
+                     "https://user:secret@updates.invalid/MdNote%20Setup.exe")
+        for address in addresses:
+            with self.subTest(address=address):
+                self.success.clear()
+                self.failures.clear()
+                reply = Reply(self.payload, address)
+                self.manager._release = self.release
+                self.manager._nam = Network(reply)
+                self.manager.download()
+                reply.finished.emit()
+                self.assertEqual(self.success, [])
+                self.assertEqual(len(self.failures), 1)
+                self.assertEqual(list(Path(self.folder.name).iterdir()), [])
+
     def test_shutdown_aborts_and_cleans_active_download(self):
         reply = Reply(self.payload)
         self.manager._nam = Network(reply)
