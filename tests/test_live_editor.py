@@ -61,6 +61,12 @@ class LiveEditorTests(unittest.TestCase):
 
     # ------------------------------------------------ core ------------------
 
+    def test_native_background_is_opaque_and_not_black(self):
+        # Startup must not flash a black native WebEngine rectangle.
+        color = self.view.page().backgroundColor()
+        self.assertEqual(color.alpha(), 255)
+        self.assertFalse(color.red() == 0 and color.green() == 0 and color.blue() == 0)
+
     def test_typing_appends_and_syncs_markdown(self):
         self.load("开头")
         self.js(r"""

@@ -154,12 +154,15 @@ class WebPreview(QWebEngineView):
 
     def __init__(self, doc: LiveDocument, get_doc_path=None, parent=None) -> None:
         super().__init__(parent)
-        self.setStyleSheet("QWebEngineView { border: 0; padding: 0; }")
+        self.setStyleSheet("QWebEngineView { border: 0; padding: 0; background: transparent; }")
         self._doc = doc
         self._bridge = Bridge(doc, get_doc_path)
         # App commands issued before the first page load are queued.
         self._app_ready = False
         self._pending_app_scripts: list[str] = []
+        # Paint the native view background to match the theme BEFORE the first
+        # frame; otherwise Chromium shows a black rectangle during startup.
+        self.page().setBackgroundColor(QColor(self._theme_background()))
         channel = QWebChannel(self.page())
         channel.registerObject("bridge", self._bridge)
         self.page().setWebChannel(channel)
@@ -242,10 +245,7 @@ class WebPreview(QWebEngineView):
     def apply_prefs(self) -> None:
         s = settings_service().current
         theme_id = self._theme_id(s.theme)
-        backgrounds = {"light": "#ffffff", "dark": "#0d1117",
-                       "solarized": "#fdf6e3", "sepia": "#f5ecd9",
-                       "night": "#000000", "monokai": "#272822", "dracula": "#282a36"}
-        self.page().setBackgroundColor(QColor(backgrounds[theme_id]))
+        self.page().setBackgroundColor(QColor(self._theme_background()))
         self.page().runJavaScript(
             "document.body.classList.toggle('focus-mode', "
             f"{'true' if s.focus_mode else 'false'});"
@@ -269,6 +269,18 @@ class WebPreview(QWebEngineView):
             if theme_id in t:
                 return theme_id
         return "light"
+
+    _THEME_BACKGROUNDS = {"light": "#ffffff", "dark": "#0d1117",
+                          "solarized": "#fdf6e3", "sepia": "#f5ecd9",
+                          "night": "#000000", "monokai": "#272822",
+                          "dracula": "#282a36"}
+
+    def _theme_background(self) -> str:
+        try:
+            theme_id = self._theme_id(settings_service().current.theme)
+        except Exception:
+            theme_id = "light"
+        return self._THEME_BACKGROUNDS.get(theme_id, "#ffffff")
 
     def reload_blocks(self, focus: bool = False) -> None:
         """Rebuild the continuous surface from the current document text."""
