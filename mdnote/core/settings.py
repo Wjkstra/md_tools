@@ -15,6 +15,7 @@ class AppSettings:
     font_size: int = 16
     tab_size: int = 2
     code_line_numbers: bool = True
+    default_code_language: str = ""
     mermaid: bool = True
     smart_punctuation: bool = False
     focus_mode: bool = False

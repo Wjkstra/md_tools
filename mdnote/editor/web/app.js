@@ -555,21 +555,74 @@ const App = {
     const area=block.querySelector(".md-code-area");
     const tools=block.querySelector(".md-code-tools");
     if (!area || !tools || tools.children.length) return;
-    const select=document.createElement("select");
-    select.className="md-code-language";
-    select.setAttribute("aria-label","代码语言");
-    select.title="选择代码语言，自动应用缩进预设";
-    const lang=block.dataset.lang||"";
-    const choices=CodeEditing.languages.slice();
-    if(!choices.some(item=>item[0]===lang)) choices.push([lang,lang]);
-    choices.forEach(([value,label])=>select.add(new Option(label,value)));
-    select.value=lang;
-    select.addEventListener("change",()=>{
-      block.dataset.lang=select.value;
-      block.querySelector(".md-code-lang").textContent=select.value||"text";
+    // Language combobox: type to filter (c -> C, C++, C#), click to pick.
+    const langWrap=document.createElement("span");
+    langWrap.className="md-code-lang-picker";
+    const input=document.createElement("input");
+    input.type="text";
+    input.className="md-code-language";
+    input.setAttribute("aria-label","代码语言");
+    input.spellcheck=false;
+    input.autocomplete="off";
+    const cur=block.dataset.lang||"";
+    input.value=cur;
+    input.placeholder="纯文本";
+    input.title="输入语言（如 c 联想 C/C++/C#），或点击选择";
+    const list=document.createElement("div");
+    list.className="md-code-lang-list";
+    list.hidden=true;
+    langWrap.append(input,list);
+
+    const applyLanguage=(value)=>{
+      const normalized=CodeEditing.language(value||"");
+      block.dataset.lang=normalized;
+      block.querySelector(".md-code-lang").textContent=normalized||"text";
+      input.value=normalized;
       this.refreshCode(block); this.pushSurface();
-      area.focus();
+    };
+    const renderList=(filter)=>{
+      const q=(filter||"").toLowerCase().trim();
+      const matches=CodeEditing.languages
+        .filter(([value,label])=>!q||value.toLowerCase().includes(q)||label.toLowerCase().includes(q))
+        .slice(0,10);
+      if(!matches.length){list.hidden=true;list.innerHTML="";return;}
+      list.innerHTML="";
+      matches.forEach(([value,label])=>{
+        const item=document.createElement("button");
+        item.type="button";
+        item.className="md-code-lang-item";
+        item.textContent=label;
+        item.dataset.value=value;
+        // Mouse selection (mousedown fires before the input loses focus).
+        item.addEventListener("mousedown",(e)=>{
+          e.preventDefault();
+          applyLanguage(value);
+          list.hidden=true;
+          area.focus();
+        });
+        list.appendChild(item);
+      });
+      list.hidden=false;
+    };
+    input.addEventListener("input",()=>renderList(input.value));
+    input.addEventListener("focus",()=>renderList(input.value));
+    input.addEventListener("keydown",(e)=>{
+      if(e.key==="Enter"){
+        e.preventDefault();
+        const first=list.querySelector(".md-code-lang-item");
+        applyLanguage(first?first.dataset.value:input.value);
+        list.hidden=true;
+        area.focus();
+      }else if(e.key==="Escape"){ list.hidden=true; }
+      else if(e.key==="ArrowDown"&&!list.hidden){
+        e.preventDefault(); list.querySelector(".md-code-lang-item")?.focus();
+      }
     });
+    document.addEventListener("mousedown",(e)=>{
+      if(!langWrap.contains(e.target)) list.hidden=true;
+    });
+    input.addEventListener("change",()=>applyLanguage(input.value));
+
     const hint=document.createElement("span");
     hint.className="md-code-hint";hint.textContent="Tab 缩进 · Ctrl+Enter 退出";
     const copy=document.createElement("button");
@@ -582,7 +635,7 @@ const App = {
       if(saved){selection.removeAllRanges();selection.addRange(saved);}
       copy.textContent=ok?"已复制":"复制";setTimeout(()=>copy.textContent="复制",1000);
     });
-    tools.append(select,hint,copy);
+    tools.append(langWrap,hint,copy);
     const numbers=document.createElement("pre");
     numbers.className="md-code-numbers";numbers.setAttribute("aria-hidden","true");
     area.parentElement.prepend(numbers);
@@ -793,7 +846,9 @@ const App = {
           range.setEnd(tail.startContainer,tail.startOffset);
         } else range.selectNode(paragraph);
         const s=getSelection();s.removeAllRanges();s.addRange(range);
-        this.insertMarkdown(match[2]+match[3]+"\n\n"+match[2]);return;
+        // No explicit info string: apply the configured default language.
+        const info=match[3] || (window.__defaultCodeLanguage||"");
+        this.insertMarkdown(match[2]+info+"\n\n"+match[2]);return;
       }
     }
     // Inline format shortcuts in the continuous surface.

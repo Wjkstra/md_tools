@@ -138,6 +138,26 @@ class CodeTableExperienceTests(unittest.TestCase):
         self.assertTrue(self.view.flush_surface())
         self.assertEqual(self.doc.get_text(), F+'cpp\nif (ok) {\n    \n'+F)
 
+    def test_language_autocomplete_filters_and_pick_applies(self):
+        self.code('x = 1', '')
+        # Typing "c" filters to C-family and related languages.
+        self.js("""(()=>{const i=document.querySelector('input.md-code-language');
+        i.value='c';i.dispatchEvent(new Event('input',{bubbles:true}));})()""")
+        labels = json.loads(self.js(
+            "JSON.stringify([...document.querySelectorAll('.md-code-lang-item')]"
+            ".map(b=>b.dataset.value))"))
+        self.assertIn("c", labels)
+        self.assertIn("cpp", labels)
+        self.assertIn("csharp", labels)
+        # Mouse (mousedown) on the C# suggestion applies it.
+        self.js("""(()=>{const b=[...document.querySelectorAll('.md-code-lang-item')]
+                 .find(x=>x.dataset.value==='csharp');
+                 b.dispatchEvent(new MouseEvent('mousedown',{bubbles:true,cancelable:true}));})()""")
+        self.assertEqual(
+            self.js("document.querySelector('.md-code').dataset.lang"), "csharp")
+        self.assertTrue(self.view.flush_surface())
+        self.assertIn(F+"csharp\n", self.doc.get_text())
+
     def test_immediate_flush_captures_last_input_and_blank_code_line(self):
         self.code('x;')
         self.code_focus()

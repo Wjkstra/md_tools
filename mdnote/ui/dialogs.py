@@ -149,6 +149,10 @@ class SettingsDialog(QDialog):
         self._linenos = QCheckBox("代码块显示行号")
         self._linenos.setChecked(s.code_line_numbers)
 
+        # 默认代码语言（新建围栏时代入；留空为纯文本）
+        self._default_lang = QLineEdit(s.default_code_language)
+        self._default_lang.setPlaceholderText("留空为纯文本，如 python / c")
+
         self._imgfolder = QLineEdit(s.image_folder)
 
         # 更新设置
@@ -180,6 +184,7 @@ class SettingsDialog(QDialog):
         form.addRow("", self._autosave)
         form.addRow("", self._mermaid)
         form.addRow("", self._linenos)
+        form.addRow("默认代码语言", self._default_lang)
         form.addRow("图片目录", self._imgfolder)
         form.addRow("更新清单 URL", self._update_url)
         form.addRow("", self._auto_check)
@@ -213,6 +218,7 @@ class SettingsDialog(QDialog):
                 auto_save=self._autosave.isChecked(),
                 mermaid=self._mermaid.isChecked(),
                 code_line_numbers=self._linenos.isChecked(),
+                default_code_language=self._default_lang.text().strip(),
                 image_folder=self._imgfolder.text().strip() or "assets",
                 update_url=self._update_url.text().strip(),
                 auto_check_updates=self._auto_check.isChecked(),

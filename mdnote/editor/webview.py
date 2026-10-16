@@ -255,6 +255,7 @@ class WebPreview(QWebEngineView):
             f"window.__mermaid = {'true' if s.mermaid else 'false'};"
             f"window.__tabSize = {int(s.tab_size)};"
             f"window.__codeLineNumbers = {json.dumps(s.code_line_numbers)};"
+            f"window.__defaultCodeLanguage = {json.dumps(s.default_code_language)};"
             "if (typeof App !== 'undefined') App.applyCodePrefs();"
             f"document.body.style.fontSize = {json.dumps(str(s.font_size) + 'px')};"
         )

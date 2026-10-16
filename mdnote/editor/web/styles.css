@@ -121,6 +121,10 @@ body[data-theme="dracula"] .md-code { background: var(--codehilite-bg); }
 
 p { margin: 0.45em 0; }
 
+/* 正文段落默认首行缩进两个字符（列表/引用/代码/表格内不缩进） */
+#doc > p { text-indent: 2em; }
+#doc > p.surface-end { text-indent: 0; }
+
 h1, h2, h3, h4, h5, h6 { line-height: 1.35; }
 h1 { font-size: 1.85em; border-bottom: 1px solid var(--border); padding-bottom: 0.25em; }
 h2 { font-size: 1.5em; }
@@ -231,10 +235,25 @@ html, body { min-height: 100%; border: 0; outline: 0; box-shadow: none; }
 }
 .md-code-language, .md-code-tools button {
   color: var(--text-secondary); background: var(--codehilite-bg);
-  border: 0; border-radius: 4px; font: inherit; padding: 3px 6px; cursor: pointer;
+  border: 1px solid var(--border); border-radius: 4px; font: inherit; padding: 2px 8px;
 }
+input.md-code-language { cursor: text; min-width: 92px; }
 .md-code-language:focus-visible, .md-code-tools button:focus-visible { outline: 1px solid var(--accent); }
+.md-code-lang-picker { position: relative; }
+.md-code-lang-list {
+  position: absolute; top: calc(100% + 2px); left: 0; z-index: 60;
+  min-width: 150px; max-height: 240px; overflow-y: auto;
+  background: var(--bg); border: 1px solid var(--border); border-radius: 6px;
+  box-shadow: 0 6px 20px rgba(0,0,0,.18); padding: 4px;
+}
+.md-code-lang-item {
+  display: block; width: 100%; text-align: left;
+  color: var(--text); background: none; border: 0; border-radius: 4px;
+  font: 12px/1.8 system-ui, sans-serif; padding: 2px 10px; cursor: pointer;
+}
+.md-code-lang-item:hover, .md-code-lang-item:focus { background: var(--code-bg); color: var(--accent); }
 .md-code-hint { margin-left: auto; opacity: .7; }
+.md-code-tools button { cursor: pointer; }
 .md-code-tools button:hover { color: var(--accent); background: var(--code-bg); }
 .md-code-scroll { overflow-x: auto; padding: 4px 16px 16px; }
 .md-code-body { display: grid; grid-template-columns: auto minmax(0, 1fr); min-width: 100%; width: max-content; }
