@@ -1,6 +1,6 @@
 {
-  "version": "0.2.2",
-  "notes": "本次更新内容：\n\n- 修复设置中更新地址为空白时检查更新报错“必须是有效的 HTTPS URL”的问题\n- 优化代码块：语言感知缩进、括号补全、语法高亮与行号\n- 表格 Ctrl+Enter 加行、Alt+Enter 加列\n- 渲染视图无边框、版面更宽、去除多余黑边\n- 多标签、全文检索、七套主题",
-  "url": "https://github.com/Wjkstra/md_tools/releases/download/v0.2.2/MdNote-Setup-0.2.2.exe",
-  "sha256": "2c4ec2361e7f467e1fda291fda510db1a911f0dad566c5b65eb4ddfd5f1639a9"
+  "version": "0.3.0",
+  "notes": "本次更新内容：\n\n- 渲染后模式改为 Typora 式所见即所得：输入 Markdown 即时渲染\n- 标题 #、列表 -、引用 >、分隔线等块标记即时转换；Ctrl+1~6 快速设置标题\n- 代码块语言联想选择（输入 c 提示 C/C++/C# 等），支持默认语言设置\n- 代码块多语言语法高亮、自动缩进与括号补全；Mermaid 图表直接渲染\n- 任务框可点击勾选/取消；行首退格先去除格式\n- 正文段落首行缩进；表格 Ctrl+Enter 加行、Alt+Enter 加列\n- 修复模式切换多余回车、空白更新地址报错等问题",
+  "url": "https://github.com/Wjkstra/md_tools/releases/download/v0.3.0/MdNote-Setup-0.3.0.exe",
+  "sha256": "6625f186b567aa0ba628a5c1fc60eebd8b8d95604a9c9c8540a28f7c6b329607"
 }
