@@ -1,6 +1,6 @@
 {
-  "version": "0.3.2",
-  "notes": "本次更新内容：\n\n- 修复部分电脑启动时报“导入 QtGui 失败 / 找不到指定的程序”无法打开的问题（安装包内 VC 运行库版本不一致）\n- 连续表面即时渲染、代码块语言联想、任务勾选等 0.3.0/0.3.1 能力保持不变",
-  "url": "https://github.com/Wjkstra/md_tools/releases/download/v0.3.2/MdNote-Setup-0.3.2.exe",
-  "sha256": "7bc3a40b87b81c3ed0cf06a581547ef90f9b53443634c447f1fd7c2bbedc3a92"
+  "version": "0.3.3",
+  "notes": "本次更新内容：\n\n- 修复应用启动瞬间编辑区域短暂黑屏的问题\n- 保留 0.3.2 的启动修复（部分电脑无法打开）及连续表面即时渲染等全部能力",
+  "url": "https://github.com/Wjkstra/md_tools/releases/download/v0.3.3/MdNote-Setup-0.3.3.exe",
+  "sha256": "fcd6f1597a22ca52e3440f3d10bcbea6e5d71645d3b3ae14ed6a406716979cb3"
 }
