@@ -7,9 +7,66 @@ Then: makensis installer/setup.nsi
 import argparse
 import ast
 import re
+import shutil
 from pathlib import Path
 
 ROOT = Path(__file__).resolve().parent.parent
+
+# Visual C++ runtime DLLs that must match the version Qt was built against.
+# PyInstaller may collect older copies from the base Python interpreter while
+# PySide6/Qt needs newer ones; a mixed set causes
+# "ImportError: DLL load failed while importing QtGui: 找不到指定的程序"
+# on machines without the matching system redistributable.
+VC_RUNTIME_DLLS = (
+    "vcruntime140.dll",
+    "vcruntime140_1.dll",
+    "msvcp140.dll",
+    "msvcp140_1.dll",
+    "msvcp140_2.dll",
+    "concrt140.dll",
+)
+
+
+def sync_vc_runtime(dist: Path) -> list[str]:
+    """Overwrite bundled VC runtimes with the versions shipped by PySide6."""
+    try:
+        import PySide6
+    except ImportError:
+        return []
+    qt_dir = Path(PySide6.__file__).resolve().parent
+    internal = dist / "_internal"
+    replaced: list[str] = []
+    for name in VC_RUNTIME_DLLS:
+        source = qt_dir / name
+        target = internal / name
+        if not source.exists():
+            continue
+        if not target.exists() or source.stat().st_size != target.stat().st_size:
+            shutil.copy2(source, target)
+            replaced.append(f"{name} {_file_version(source)}")
+    return replaced
+
+
+def _file_version(path: Path) -> str:
+    try:
+        import ctypes
+        size = ctypes.windll.version.GetFileVersionInfoSizeW(str(path), None)
+        if not size:
+            return ""
+        block = ctypes.create_string_buffer(size)
+        ctypes.windll.version.GetFileVersionInfoW(str(path), None, size, block)
+        pointer = ctypes.c_void_p()
+        length = ctypes.c_uint()
+        ctypes.windll.version.VerQueryValueW(
+            block, "\\", ctypes.byref(pointer), ctypes.byref(length))
+        class VS_FIXEDFILEINFO(ctypes.Structure):
+            _fields_ = [(n, ctypes.c_uint32) for n in
+                        ("sig", "struc", "ms_hi", "ms_lo", "ls_hi", "ls_lo")]
+        info = VS_FIXEDFILEINFO.from_address(pointer.value)
+        return (f"{info.ms_hi >> 16}.{info.ms_hi & 0xffff}."
+                f"{info.ms_lo >> 16}.{info.ms_lo & 0xffff}")
+    except Exception:
+        return ""
 
 
 def read_app_version(source: Path = ROOT / "mdnote" / "__init__.py") -> str:
@@ -76,6 +133,9 @@ def main() -> None:
     parser.add_argument("--dist", type=Path, default=ROOT / "dist" / "MdNote")
     parser.add_argument("--out", type=Path, default=ROOT / "installer" / "generated-files.nsh")
     args = parser.parse_args()
+    replaced = sync_vc_runtime(args.dist)
+    for item in replaced:
+        print(f"VC runtime synced: {item}")
     contents = build_inventory(args.dist, read_app_version())
     args.out.parent.mkdir(parents=True, exist_ok=True)
     args.out.write_text(contents, encoding="utf-8-sig")

@@ -34,3 +34,7 @@ MdNote-Setup-*.exe
 # 项目内临时测试依赖
 .test-deps/
 .audit-tool/
+
+# Local silent-install verification output
+.tmp_inst/
+.tmp_*/
