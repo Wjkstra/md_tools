@@ -18,7 +18,10 @@ body[data-theme="light"] {
 html, body {
   margin: 0;
   padding: 0;
-  background: var(--bg);
+  /* Transparent so the native QWebEngine background (set per theme before the
+     first frame) shows through until data-theme applies; both use the same
+     color, so dark themes never flash white and startup never flashes black. */
+  background: transparent;
   color: var(--text);
   font-size: 16px;
   line-height: 1.7;

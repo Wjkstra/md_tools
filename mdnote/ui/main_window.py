@@ -221,6 +221,9 @@ class MainWindow(QMainWindow):
         if not isinstance(session, EditorSession):
             self.tabs.removeTab(index)
             return
+        # Pull debounced/atom edits from the surface before deciding whether
+        # the document is dirty, so the very latest input is never dropped.
+        session.flush_pending_edits()
         if not session.dirty or self._discard_guard(session):
             self.tabs.removeTab(index)
             session.autosave_timer.stop()
@@ -477,6 +480,7 @@ class MainWindow(QMainWindow):
         if not session:
             self.new_tab()
             return
+        session.flush_pending_edits()
         if session.dirty and not self._discard_guard(session):
             return
         session.file_path = None
@@ -899,6 +903,11 @@ class MainWindow(QMainWindow):
         self.request_status()
 
     def closeEvent(self, event) -> None:
+        # Flush every surface first so debounced/atom edits count as dirty.
+        for i in range(self.tabs.count()):
+            session = self.tabs.widget(i)
+            if isinstance(session, EditorSession):
+                session.flush_pending_edits()
         dirty_sessions = [
             self.tabs.widget(i)
             for i in range(self.tabs.count())

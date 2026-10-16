@@ -115,6 +115,28 @@ def _code_block(block) -> str:
     )
 
 
+def _definition_block(block) -> str | None:
+    """Render cross-block reference/footnote definitions as preserved atoms.
+
+    Reference links (``[id]: url "title"``) and footnotes (``[^id]: body``)
+    only resolve when the whole document is parsed together; per-block
+    rendering would drop them on save. Keep them verbatim so a round trip
+    never loses the definition or its URL/title.
+    """
+    if block.type != "paragraph":
+        return None
+    raw = block.raw.strip()
+    is_reference = re.match(r"^\[[^\]\n]+\]:\s*\S+", raw) is not None
+    is_footnote = re.match(r"^\[\^[^\]\n]+\]:\s*", raw) is not None
+    if not (is_reference or is_footnote):
+        return None
+    kind = "atom-footnote-def" if is_footnote else "atom-reference-def"
+    label = "脚注定义" if is_footnote else "引用定义"
+    return _atom(kind, block.raw,
+                 f'<div class="atom-label">{label}</div>'
+                 f'<pre>{_html.escape(raw)}</pre>')
+
+
 def _render_block(block) -> str:
     btype = block.type
 
@@ -135,6 +157,10 @@ def _render_block(block) -> str:
         display = _html.escape(block.raw)
         return _atom("atom-math", block.raw,
                      f'<div class="math-source">{display}</div>')
+
+    definition = _definition_block(block)
+    if definition is not None:
+        return definition
 
     return _render_editable(block.raw)
 

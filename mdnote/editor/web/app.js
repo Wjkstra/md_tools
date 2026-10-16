@@ -207,17 +207,7 @@ const App = {
       cb.removeAttribute("disabled");
       cb.setAttribute("tabindex", "-1");
     });
-    doc.querySelectorAll(".atom-diagram").forEach((atom) => {
-      if (window.mermaid && !atom.dataset.rendered) {
-        atom.dataset.rendered = "1";
-        try {
-          window.mermaid.initialize({ startOnLoad: false, securityLevel: "strict",
-            theme: "neutral" });
-          const result = window.mermaid.run({ nodes: [atom.querySelector(".mermaid")] });
-          if (result && result.catch) result.catch(() => {});
-        } catch (e) { /* keep source visible */ }
-      }
-    });
+    this.renderDiagrams();
     this.updateHeadingHint();
   },
 
@@ -549,6 +539,31 @@ const App = {
       block.classList.toggle("has-line-numbers",!!window.__codeLineNumbers);
       block.style.setProperty("--tab-size",window.__tabSize||2);
     });
+    // Re-evaluate Mermaid blocks when the diagram preference changes.
+    document.querySelectorAll(".atom-diagram").forEach((atom)=>{
+      if (window.__mermaid === false) {
+        atom.dataset.rendered = "off";
+        atom.querySelector("svg")?.remove();
+      } else if (atom.dataset.rendered === "off") {
+        atom.dataset.rendered = ""; // allow renderDiagrams to run again
+      }
+    });
+    if (window.__mermaid !== false) this.renderDiagrams();
+  },
+
+  renderDiagrams() {
+    document.querySelectorAll(".atom-diagram").forEach((atom) => {
+      if (window.__mermaid === false || atom.dataset.rendered === "1") return;
+      if (window.mermaid && atom.querySelector(".mermaid")) {
+        atom.dataset.rendered = "1";
+        try {
+          window.mermaid.initialize({ startOnLoad: false, securityLevel: "strict",
+            theme: "neutral" });
+          const result = window.mermaid.run({ nodes: [atom.querySelector(".mermaid")] });
+          if (result && result.catch) result.catch(() => {});
+        } catch (e) { /* keep source visible */ }
+      }
+    });
   },
 
   setupCode(block) {
@@ -879,21 +894,55 @@ const App = {
     const host = target && target.closest
       ? target.closest("h1,h2,h3,h4,h5,h6,p,li,blockquote") : null;
     if (!host || host.closest(".md-code, table, .md-atom")) return;
-    const offset = this.caretOffsetIn(host);
-    let text = host.textContent;
-    // Normalise to plain text first (strip any list/quote/heading wrapper).
-    let insertion;
-    if (level === 0) {
-      insertion = document.createElement("p");
-    } else {
-      insertion = document.createElement("h" + level);
+    if (host.tagName === "LI") {
+      this._convertListItem(host, level === 0 ? "p" : "h" + level);
+      return;
     }
-    insertion.innerHTML = MdInline.format(text) || "<br>";
-    // If inside a list/blockquote, replace the whole structural wrapper.
-    const wrapper = host.closest("ul,ol") || (host.tagName === "P" && host.parentElement.tagName === "BLOCKQUOTE" ? host.parentElement : host);
-    wrapper.replaceWith(insertion);
+    const offset = this.caretOffsetIn(host);
+    const insertion = document.createElement(level === 0 ? "p" : "h" + level);
+    insertion.innerHTML = MdInline.format(host.textContent) || "<br>";
+    if (host.tagName === "P" && host.parentElement.tagName === "BLOCKQUOTE") {
+      host.parentElement.replaceWith(insertion);
+    } else {
+      host.replaceWith(insertion);
+    }
     this.restoreCaret(insertion, offset);
     this.postProcess(document.getElementById("doc"));
+    this.scheduleSync();
+  },
+
+  // Split the list around one item, replacing only that item with a
+  // paragraph/heading while keeping all sibling items and nesting.
+  _convertListItem(li, tagName) {
+    const list = li.closest("ul,ol"), doc = document;
+    const parent = list.parentNode;
+    // Build real (not cloned) replacement nodes using the live items, so the
+    // preceding and following lists keep their original elements.
+    const middle = doc.createElement(tagName);
+    middle.innerHTML = MdInline.format(li.textContent) || "<br>";
+    let beforeList = null, afterList = null;
+    if (li.previousElementSibling) {
+      beforeList = list.cloneNode(false);
+      let n = list.firstElementChild;
+      while (n && n !== li) { beforeList.appendChild(n); n = n.nextElementSibling; }
+    }
+    if (li.nextElementSibling) {
+      afterList = list.cloneNode(false);
+      let n = li.nextElementSibling;
+      while (n) { afterList.appendChild(n); n = n.nextElementSibling; }
+    }
+    // Replace the list with siblings [before?, middle, after?].
+    list.remove();
+    const nodes = [];
+    if (beforeList) nodes.push(beforeList);
+    nodes.push(middle);
+    if (afterList) nodes.push(afterList);
+    nodes.forEach((node) => parent.appendChild(node));
+    // Move caret into the converted block.
+    const range = doc.createRange();
+    range.selectNodeContents(middle); range.collapse(false);
+    const sel = getSelection(); sel.removeAllRanges(); sel.addRange(range);
+    this.postProcess(doc.getElementById("doc"));
     this.scheduleSync();
   },
 
@@ -936,12 +985,8 @@ const App = {
   },
 
   _demoteListItem(li) {
-    const list = li.closest("ul,ol");
-    const p = document.createElement("p");
-    p.innerHTML = li.innerHTML || "<br>";
-    list.replaceWith(p);
-    this.restoreCaret(p, 0);
-    this.scheduleSync();
+    // Turn only this item into a paragraph; keep sibling items.
+    this._convertListItem(li, "p");
   },
 };
 

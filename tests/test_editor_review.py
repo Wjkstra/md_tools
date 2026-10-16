@@ -127,6 +127,25 @@ class LiveReviewTests(unittest.TestCase):
  const s=getSelection();s.removeAllRanges();s.addRange(r);return true;})
 (arguments[0])""".replace("arguments[0]", json.dumps(selector)))
 
+    def test_converting_one_list_item_keeps_sibling_items(self):
+        # P1 regression: demoting/converting one item must not delete the
+        # other items in the same list.
+        for action, expected_middle in [
+            ("App.backspaceStripFormat()", "second"),
+            ("App.setHeadingLevel(2)", "## second"),
+        ]:
+            self._load("- first\n- second\n- third\n")
+            result = self.js(r"""
+((action)=>{const lis=document.querySelectorAll('#doc li');const li=lis[1];
+ const r=document.createRange();r.setStart(li.firstChild,0);r.collapse(true);
+ const s=getSelection();s.removeAllRanges();s.addRange(r);
+ eval(action);
+ return HtmlToMd.serialize(document.getElementById('doc'));})
+(arguments[0])""".replace("arguments[0]", json.dumps(action)))
+            self.assertIn("- first", result)
+            self.assertIn(expected_middle, result)
+            self.assertIn("- third", result)
+
     def test_heading_converts_after_exiting_list(self):
         # Exiting a list via Enter leaves a bare <div>; a heading marker typed
         # there must still convert (regression: only <p> hosts were recognised).

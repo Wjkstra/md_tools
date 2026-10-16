@@ -76,7 +76,7 @@ test("unordered, ordered and nested lists", () => {
   assert.equal(md(doc), [
     "- 甲",
     "- 乙",
-    "  - 嵌套",
+    "    - 嵌套",
     "",
     "1. 一",
     "2. 二",
@@ -93,6 +93,26 @@ test("task list items keep checkbox state", () => {
       "完成"),
   ));
   assert.equal(md(doc), "- [ ] 未完成\n- [x] 完成");
+});
+
+test("ordered list preserves explicit start", () => {
+  const doc = root(h("ol", { start: "5" },
+    h("li", {}, "five"), h("li", {}, "six")));
+  assert.equal(md(doc), "5. five\n6. six");
+});
+
+test("nested list indents by four spaces", () => {
+  const doc = root(h("ul", {},
+    h("li", {}, "a", h("ul", {}, h("li", {}, "sub")))));
+  assert.equal(md(doc), "- a\n    - sub");
+});
+
+test("reference and footnote definitions survive via atom data-md", () => {
+  const atom = (cls, source) => h("div", { class: "md-atom " + cls, "data-md": source });
+  assert.equal(md(root(atom("atom-reference-def", '[ref]: https://x.io "T"'))),
+    '[ref]: https://x.io "T"');
+  assert.equal(md(root(atom("atom-footnote-def", "[^n]: Footnote body."))),
+    "[^n]: Footnote body.");
 });
 
 test("blockquote prefixes every line", () => {

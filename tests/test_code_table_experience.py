@@ -59,6 +59,19 @@ class CodeTableExperienceTests(unittest.TestCase):
         self.assertTrue(self.js("!!document.querySelector('.atom-diagram')"))
         self.wait(lambda: self.js("!!document.querySelector('.atom-diagram svg')"), )
 
+    def test_disabled_mermaid_preference_keeps_source_without_svg(self):
+        # P2 regression: turning the Mermaid setting off must suppress SVG.
+        self.js("window.__mermaid=false; App.applyCodePrefs();")
+        self.load(F + "mermaid\ngraph TD; A-->B;\n" + F)
+        self.assertTrue(self.js("!!document.querySelector('.atom-diagram')"))
+        # Give async rendering a chance; an SVG must never appear.
+        self.app.processEvents()
+        import time as _t
+        _t.sleep(0.3)
+        self.app.processEvents()
+        self.assertFalse(self.js("!!document.querySelector('.atom-diagram svg')"))
+        self.js("window.__mermaid=true;")
+
     def test_unclosed_code_keeps_last_line_and_original_fence(self):
         source = '~~~python\nfirst = 1\nlast = 2'
         self.load(source)

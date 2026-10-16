@@ -37,7 +37,13 @@ class UIExperienceTests(unittest.TestCase):
             finally:
                 for i in range(window.tabs.count()):
                     window.tabs.widget(i).dirty = False
-                window.close()
+                # Tests discard edits; stop closeEvent's flush from re-marking
+                # sessions dirty and opening a modal on teardown.
+                with patch(
+                    "mdnote.ui.editor_session.EditorSession.flush_pending_edits",
+                    lambda self: True,
+                ):
+                    window.close()
                 svc.off_change(window._on_settings_changed)
                 window.deleteLater()
                 QCoreApplication.sendPostedEvents(None, QEvent.Type.DeferredDelete)
@@ -191,7 +197,11 @@ def makeExtension(**kwargs): return E()
                                  markdown_engine.markdown_engine().render("plain text"))
                 for i in range(window.tabs.count()):
                     window.tabs.widget(i).dirty = False
-                window.close()
+                with patch(
+                    "mdnote.ui.editor_session.EditorSession.flush_pending_edits",
+                    lambda self: True,
+                ):
+                    window.close()
                 svc.off_change(window._on_settings_changed)
                 window.deleteLater()
 

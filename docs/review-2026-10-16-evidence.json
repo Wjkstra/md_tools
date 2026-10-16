@@ -1,0 +1,144 @@
+{
+  "roundtrip": {
+    "plain": {
+      "source": "Hello **world**",
+      "captured": "Hello **world**"
+    },
+    "escaped_format": {
+      "source": "literal \\*asterisk\\* and \\[brackets\\]",
+      "captured": "literal *asterisk* and [brackets]"
+    },
+    "escaped_html": {
+      "source": "&lt;em&gt;literal&lt;/em&gt;",
+      "captured": "<em>literal</em>"
+    },
+    "inline_backtick": {
+      "source": "Use ``a`b`` here",
+      "captured": "Use `a`b` here"
+    },
+    "reference_link": {
+      "source": "[website][ref]\n\n[ref]: https://example.invalid/ \"Title\"",
+      "captured": "[website][ref]"
+    },
+    "footnote": {
+      "source": "A footnote[^n].\n\n[^n]: Footnote body.",
+      "captured": "A footnote[^n].\n\n\n\n\n\nFootnote body. [↩](#fnref:n)\n\n\n"
+    },
+    "nested_list": {
+      "source": "- parent\n    - child\n- sibling",
+      "captured": "- parent\n  - child\n- sibling"
+    },
+    "ordered_start": {
+      "source": "5. Five\n6. Six",
+      "captured": "1. Five\n2. Six"
+    },
+    "definition_list": {
+      "source": "Term\n: Definition",
+      "captured": "\nTerm\nDefinition\n"
+    },
+    "table_format": {
+      "source": "| Name | Link |\n| --- | --- |\n| **bold** | [site](https://example.invalid/) |",
+      "captured": "| Name | Link |\n| --- | --- |\n| **bold** | [site](https://example.invalid/) |"
+    },
+    "code": {
+      "source": "```python\nprint(\"x\")\n```",
+      "captured": "```python\nprint(\"x\")\n```"
+    },
+    "math": {
+      "source": "$x^2$\n\n$$\nx^2 + y^2\n$$",
+      "captured": "$x^2$\n\n$$\nx^2 + y^2\n$$"
+    },
+    "raw_html": {
+      "source": "<p><mark>highlight</mark> and <sup>2</sup></p>",
+      "captured": "highlight and 2"
+    }
+  },
+  "list_backspace": "second",
+  "list_backspace_undo": "second",
+  "list_heading": "## second",
+  "relative_image": {
+    "source": "test.png",
+    "resolved": "file:///D:/tools/md_tool/mdnote/editor/web/test.png",
+    "width": 0,
+    "base": "file:///D:/tools/md_tool/mdnote/editor/web/index.html"
+  },
+  "math": {
+    "library": "object",
+    "katex": 0,
+    "raw": 1
+  },
+  "mermaid_disabled": 1.0,
+  "pending_close": {
+    "dirty_before": false,
+    "model_before": "original",
+    "guard_calls": 0,
+    "tab_removed": true
+  },
+  "performance": [
+    {
+      "paragraphs": 1000,
+      "characters": 78888,
+      "model_ms": 24.14,
+      "render_ms": 498.83,
+      "roundtrip": true,
+      "html_bytes": 133921
+    },
+    {
+      "paragraphs": 3000,
+      "characters": 238888,
+      "model_ms": 73.75,
+      "render_ms": 1413.49,
+      "roundtrip": true,
+      "html_bytes": 403921
+    },
+    {
+      "paragraphs": 10000,
+      "characters": 798888,
+      "model_ms": 211.42,
+      "render_ms": 4716.88,
+      "roundtrip": true,
+      "html_bytes": 1348921
+    }
+  ],
+  "uncommitted_atom": {
+    "dirty": false,
+    "model": "---\ntitle: old\n---",
+    "dom": "---\ntitle: old\n--- NEW",
+    "guard_calls": 0,
+    "tab_removed": true
+  },
+  "outline_jump": {
+    "tag": "DIV",
+    "text": "FirstSecond",
+    "children": [
+      "H1",
+      "P",
+      "P",
+      "H1",
+      "P"
+    ]
+  },
+  "reference_save": {
+    "success": true,
+    "disk": "[website][ref]"
+  },
+  "environment": {
+    "commit": "f355b99",
+    "version": "0.3.3",
+    "python": "3.10.8",
+    "PySide6": "6.11.1",
+    "Markdown": "3.10.1",
+    "Pygments": "2.21.0",
+    "nh3": "0.3.7",
+    "python_tests": {
+      "total": 115,
+      "passed": 114,
+      "skipped": 1,
+      "seconds": 38.303
+    },
+    "javascript_tests": {
+      "total": 30,
+      "passed": 30
+    }
+  }
+}

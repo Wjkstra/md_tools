@@ -37,9 +37,15 @@ class InputWorkflowTests(unittest.TestCase):
                 try:
                     yield window, svc, Path(folder)
                 finally:
+                    # Tests discard edits on teardown; prevent closeEvent's
+                    # flush from re-marking the (force-cleaned) sessions dirty.
                     for index in range(window.tabs.count()):
                         window.tabs.widget(index).dirty = False
-                    window.close()
+                    with patch(
+                        "mdnote.ui.editor_session.EditorSession.flush_pending_edits",
+                        lambda self: True,
+                    ):
+                        window.close()
                     window.deleteLater()
                     QCoreApplication.sendPostedEvents(None, QEvent.Type.DeferredDelete)
                     self.app.processEvents()
@@ -216,6 +222,26 @@ class InputWorkflowTests(unittest.TestCase):
             self.assertEqual(A.current_text(), "A external")
             self.assertFalse(A.dirty)
             self.assertEqual(A._disk_text, "A external")
+
+    def test_close_tab_flushes_debounced_live_input_before_dirty_check(self):
+        # P1 regression: keystrokes still in the 120ms debounce window must be
+        # captured before the close guard decides the document is "saved".
+        with self.window() as (window, svc, folder):
+            target = folder / "note.md"
+            target.write_text("original", encoding="utf-8")
+            session = window.open_file(str(target))
+            self.wait(lambda: self.js(window, "App.surfaceReady === true"))
+            self.js(window, r"""
+(()=>{const d=document.getElementById('doc');const p=d.querySelector('p');
+ const r=document.createRange();r.selectNodeContents(p);r.collapse(false);
+ const s=getSelection();s.removeAllRanges();s.addRange(r);
+ document.execCommand('insertText',false,' NEW');})()""")
+            # flush_pending_edits captures the debounced keystrokes and marks
+            # the saved document dirty (which is what close_tab/closeEvent call
+            # before their unsaved-changes guard: dirty=True forces the guard).
+            self.assertTrue(session.flush_pending_edits())
+            self.assertTrue(session.dirty)
+            self.assertEqual(session.current_text(), "original NEW")
 
     def test_dismissing_unsaved_confirmation_keeps_tab_and_window(self):
         with self.window() as (window, svc, folder):

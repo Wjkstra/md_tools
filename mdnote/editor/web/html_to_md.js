@@ -127,6 +127,10 @@
 
   function renderList(list, markerPrefix) {
     const ordered = tagOf(list) === "ol";
+    // Preserve an explicit start number (e.g. <ol start="5">).
+    const startAttr = ordered ? parseInt(attr(list, "start"), 10) : NaN;
+    const start = ordered && Number.isFinite(startAttr) && startAttr >= 1
+      ? startAttr : 1;
     const lines = [];
     elementChildren(list).forEach(function (li, index) {
       if (tagOf(li) !== "li") return;
@@ -134,7 +138,7 @@
       if (isTaskItem(li)) {
         head = "- [" + (taskChecked(li) ? "x" : " ") + "] " + listItemInline(li);
       } else if (ordered) {
-        head = (index + 1) + ". " + listItemInline(li);
+        head = (start + index) + ". " + listItemInline(li);
       } else {
         head = "- " + listItemInline(li);
       }
@@ -142,7 +146,8 @@
       const nested = nestedList(li);
       if (nested) {
         renderList(nested).forEach(function (line) {
-          lines.push(line.replace(/^/gm, "  "));
+          // Python-Markdown requires 4 spaces to keep nested list hierarchy.
+          lines.push(line.replace(/^/gm, "    "));
         });
       }
     });

@@ -111,6 +111,41 @@ class EditorSession(QWidget):
             return self.doc.get_text()
         return self.source.get_text()
 
+    def flush_pending_edits(self) -> bool:
+        """Pull any input not yet synced from the web surface into the model.
+
+        Plain typing is debounced and atom (front matter / math / Mermaid)
+        edits only sync on explicit commit, so closing/resetting a document
+        would otherwise silently drop the latest keystrokes. After flushing,
+        mark the session dirty if the captured text differs from what was
+        last saved on disk.
+        """
+        if self.mode != "live":
+            self.flush_source()
+            return True
+        if not self.preview.flush_surface():
+            return False
+        if self.file_path:
+            try:
+                disk = Path(self.file_path).read_text(
+                    encoding="utf-8-sig")
+                if self.doc.get_text() != disk:
+                    self.set_dirty(True)
+            except OSError:
+                self.set_dirty(True)
+        else:
+            # Unsaved document: any non-empty content is a pending change.
+            if self.doc.get_text().strip():
+                self.set_dirty(True)
+        return True
+
+    def flush_source(self) -> None:
+        """Sync source-editor content into the model if it changed."""
+        text = self.source.get_text()
+        if text != self.doc.get_text():
+            self.doc.set_text(text)
+            self.set_dirty(True)
+
     def refresh_stats(self) -> None:
         self.stats = count_stats(self.current_text())
         self.host.request_status()
