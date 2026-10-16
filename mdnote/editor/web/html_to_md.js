@@ -51,7 +51,9 @@
           : "[" + inlineChildren(node) + "](" + href + ")";
       }
       case "img": {
-        const src = attr(node, "src") || "";
+        // data-md-src preserves the document-relative path even though the
+        // live preview rewrites src to a file:// URL.
+        const src = attr(node, "data-md-src") || attr(node, "src") || "";
         const alt = attr(node, "alt") || "";
         return "![" + alt + "](" + src + ")";
       }

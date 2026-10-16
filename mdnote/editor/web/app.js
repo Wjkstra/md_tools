@@ -208,7 +208,30 @@ const App = {
       cb.setAttribute("tabindex", "-1");
     });
     this.renderDiagrams();
+    this.renderMath();
     this.updateHeadingHint();
+  },
+
+  // Render block-math atoms with KaTeX; source stays in data-md for editing.
+  renderMath() {
+    if (!window.katex) return;
+    document.querySelectorAll(".atom-math").forEach((atom) => {
+      if (this.activeAtom === atom) return; // shown as source while editing
+      const render = atom.querySelector(".math-render");
+      if (!render || render.dataset.rendered) return;
+      const raw = (atom.dataset.md || "").trim();
+      const body = raw.replace(/^\$\$\s?/, "").replace(/\s?\$\$$/, "");
+      try {
+        window.katex.render(body, render, {
+          displayMode: true, throwOnError: false, output: "html",
+        });
+        render.dataset.rendered = "1";
+        atom.querySelector(".math-source")?.setAttribute("hidden", "");
+        render.removeAttribute("hidden");
+      } catch (error) {
+        render.textContent = body;
+      }
+    });
   },
 
   // ------------------------------------------------ sync -------------------
@@ -411,11 +434,17 @@ const App = {
   // Scroll the block at the given model block index into view (surface children
   // follow the block order, including the trailing end block).
   jumpToBlock(index) {
-    const child = document.getElementById("doc").children[Math.max(0, index)];
+    // Locate by model index, not raw child position: blank-line paragraphs
+    // are inserted between blocks and would otherwise shift the target.
+    const doc = document.getElementById("doc");
+    const child = doc.querySelector('[data-model-index="' + index + '"]')
+      || doc.children[Math.max(0, index)];
     if (child) {
       child.scrollIntoView({ block: "start" });
+      const focusable = child.matches("h1,h2,h3,h4,h5,h6,p,li,blockquote")
+        ? child : (child.querySelector("h1,h2,h3,h4,h5,h6,p,li") || child);
       const range = document.createRange();
-      range.selectNodeContents(child); range.collapse(true);
+      range.selectNodeContents(focusable); range.collapse(true);
       const selection = getSelection();
       selection.removeAllRanges(); selection.addRange(range);
     }

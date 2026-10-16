@@ -17,6 +17,7 @@ can restore its language (Pygments would otherwise drop it).
 
 import html as _html
 import re
+from pathlib import Path
 
 import nh3
 
@@ -155,14 +156,50 @@ def _render_block(block) -> str:
 
     if btype == "math":
         display = _html.escape(block.raw)
+        # Source stays in data-md (round-trip) / hidden node for editing;
+        # the empty render node is filled with KaTeX by postProcess.
         return _atom("atom-math", block.raw,
-                     f'<div class="math-source">{display}</div>')
+                     '<div class="math-source" hidden>' + display + "</div>"
+                     '<div class="math-render"></div>')
 
     definition = _definition_block(block)
     if definition is not None:
         return definition
 
     return _render_editable(block.raw)
+
+
+def _resolve_relative_images(html: str, doc_base: str | None) -> str:
+    """Rewrite relative image sources to file:// URLs for the live preview.
+
+    The live surface is loaded from mdnote/editor/web/, so a relative
+    ``src="assets/x.png"`` would otherwise resolve against that directory
+    instead of the document's folder. The original reference is kept in
+    ``data-md-src`` so saving still writes a document-relative path.
+    """
+    if not doc_base:
+        return html
+
+    def _to_file_uri(path: "Path") -> str:
+        from urllib.parse import quote
+        return Path(path).resolve().as_uri()
+
+    def replace(match: "re.Match") -> str:
+        prefix, quote, src, suffix = match.groups()
+        lowered = src.lower()
+        if (lowered.startswith(("http://", "https://", "file://", "data:"))
+                or src.startswith(("#", "/"))):
+            return match.group(0)
+        candidate = Path(doc_base) / src
+        if not candidate.exists():
+            return match.group(0)
+        uri = Path(candidate).resolve().as_uri()
+        esc = _html.escape(src, quote=True)
+        return (f'{prefix}{quote}{uri}{quote}{suffix} '
+                f'data-md-src="{esc}"')
+
+    pattern = re.compile(r'(<img\b[^>]*?\ssrc=)(["\'])([^"\']+)\2([^>]*)', re.I)
+    return pattern.sub(replace, html)
 
 
 def surface_html(text: str, doc_base: str | None = None) -> str:
@@ -184,10 +221,25 @@ def surface_html(text: str, doc_base: str | None = None) -> str:
             parts.append(gap_blank * extra)
             parts.append('<p class="surface-end"><br></p>')
             continue
-        parts.append(_render_block(block))
+        parts.append(_tag_model_index(_render_block(block), i))
         # Blank paragraphs between this block and the next.
         if i + 1 < len(blocks):
             gap = model.gaps[i]
             if not blocks[i + 1].trailing:
                 parts.append(gap_blank * max(0, gap - 2))
-    return "".join(parts)
+    return _resolve_relative_images("".join(parts), doc_base)
+
+
+def _tag_model_index(html: str, index: int) -> str:
+    """Tag a rendered block's root element with its model block index.
+
+    Blank-line placeholder paragraphs are intentionally untagged so outline
+    navigation targets the real block even when blank lines shift the raw
+    child-element position.
+    """
+    return re.sub(
+        r"^(<[a-zA-Z][\w-]*)",
+        lambda m: f'{m.group(1)} data-model-index="{index}"',
+        html,
+        count=1,
+    )

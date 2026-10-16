@@ -306,3 +306,8 @@ body[data-theme="monokai"] .md-code-highlight .s, body[data-theme="monokai"] .md
   pointer-events: none;
   user-select: none;
 }
+
+/* 块级数学公式 */
+.atom-math .math-render { padding: 6px 4px; overflow-x: auto; }
+.atom-math .math-render .katex-display { margin: 0; }
+.atom-math .math-source { white-space: pre-wrap; font-family: Consolas, monospace; color: var(--text-secondary); }

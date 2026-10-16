@@ -120,7 +120,7 @@ python -m mdnote
 python -m unittest discover -s tests -p "test_*.py"
 
 # JavaScript：编辑器页面用例（Node 内置测试器，需 Node 18+）
-node --test tests/test_html_to_md.js tests/test_code_editing.js
+node --test tests/test_html_to_md.js tests/test_code_editing.js tests/test_md_inline.js
 ```
 
 在无显示环境（CI、远程会话）中先切到离屏平台：

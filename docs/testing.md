@@ -3,7 +3,7 @@
 在仓库根目录执行，Python 依赖见 requirements.txt；JavaScript 用例使用 Node 内置测试器。
 
     python -m unittest discover -s tests -p "test_*.py"
-    node --test tests/test_html_to_md.js tests/test_code_editing.js
+    node --test tests/test_html_to_md.js tests/test_code_editing.js tests/test_md_inline.js
 
 无显示环境使用：
 
@@ -12,8 +12,8 @@
 
 ## 2026-10-10 验证结果
 
-- Python：93 个 unittest 用例，92 个通过，1 个因 Windows 不支持创建目录符号链接而跳过。
-- JavaScript：23 个用例全部通过。
+- Python：123 个 unittest 用例通过，1 个因 Windows 不支持创建目录符号链接而跳过。
+- JavaScript：33 个用例全部通过（html→Markdown 序列化、代码编辑、行内即时渲染）。
 - 全量 Python 回归使用临时设置文件，关闭自动更新检查，未修改用户设置。
 - Qt WebEngine 的 Chromium 沙箱保持启用；离屏运行产生 GPU/GLES 日志，退出码为 0。
 - 已查看真实页面的浅色宽屏与深色窄窗口截图，确认代码编辑区没有围栏符号与焦点边框。

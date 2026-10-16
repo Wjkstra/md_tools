@@ -72,7 +72,8 @@ class ReliabilityTests(unittest.TestCase):
 
         text = "# 标题\n\n普通段落文字\n\n- 甲\n- 乙\n"
         html = surface_html(text)
-        self.assertIn("<h1>标题</h1>", html)
+        self.assertIn("<h1", html)
+        self.assertIn(">标题</h1>", html)
         self.assertIn("普通段落文字", html)
         self.assertIn("<li>甲</li>", html)
 
