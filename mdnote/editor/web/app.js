@@ -187,6 +187,7 @@ const App = {
         const doc = document.getElementById("doc");
         doc.contentEditable = "true";
         doc.innerHTML = html;
+        this.wrapInlineMath(doc);
         this.postProcess(doc);
         this.surfaceReady = true;
       })
@@ -212,7 +213,45 @@ const App = {
     this.updateHeadingHint();
   },
 
-  // Render block-math atoms with KaTeX; source stays in data-md for editing.
+  // Wrap literal $...$ in text nodes of opened/pasted prose as math-inline
+  // spans without disturbing already-rendered elements (strong, links…).
+  wrapInlineMath(root) {
+    const MATH = /(?<![\\$])\$([^\s$][^$]*?[^\s$]|[^\s$])\$(?!\w)/;
+    const walker = document.createTreeWalker(root, NodeFilter.SHOW_TEXT, {
+      acceptNode(node) {
+        const el = node.parentElement;
+        if (!el || !/\$/.test(node.nodeValue)) return NodeFilter.FILTER_REJECT;
+        if (el.closest("code,pre,.md-atom,.math-inline,a,script,style")) {
+          return NodeFilter.FILTER_REJECT;
+        }
+        return MATH.test(node.nodeValue)
+          ? NodeFilter.FILTER_ACCEPT : NodeFilter.FILTER_REJECT;
+      },
+    });
+    const targets = [];
+    let current = walker.nextNode();
+    while (current) { targets.push(current); current = walker.nextNode(); }
+    targets.forEach((textNode) => {
+      const fragment = document.createDocumentFragment();
+      let rest = textNode.nodeValue;
+      while (rest) {
+        const m = MATH.exec(rest);
+        if (!m) { fragment.appendChild(document.createTextNode(rest)); break; }
+        if (m.index > 0) fragment.appendChild(document.createTextNode(rest.slice(0, m.index)));
+        const span = document.createElement("span");
+        span.className = "math-inline";
+        span.dataset.tex = m[1];
+        span.textContent = m[1];
+        fragment.appendChild(span);
+        rest = rest.slice(m.index + m[0].length);
+      }
+      textNode.replaceWith(fragment);
+    });
+  },
+
+  // Render math with KaTeX. Block atoms carry source in data-md; inline
+  // spans carry TeX in data-tex (which the serializer always prefers, so
+  // replacing their visual content cannot corrupt the saved Markdown).
   renderMath() {
     if (!window.katex) return;
     document.querySelectorAll(".atom-math").forEach((atom) => {
@@ -231,6 +270,16 @@ const App = {
       } catch (error) {
         render.textContent = body;
       }
+    });
+    document.querySelectorAll(".math-inline").forEach((span) => {
+      if (span.dataset.rendered) return;
+      const tex = span.dataset.tex != null ? span.dataset.tex : span.textContent;
+      try {
+        window.katex.render(tex, span, {
+          displayMode: false, throwOnError: false, output: "html",
+        });
+        span.dataset.rendered = "1";
+      } catch (error) { /* leave literal TeX visible */ }
     });
   },
 
@@ -264,7 +313,7 @@ const App = {
 
   // Characters that can CLOSE an inline mark; only they trigger an inline
   // re-render (Typora keeps raw markdown visible while you type the inside).
-  INLINE_CLOSERS: new Set(["*", "_", "~", "`", ")", "]"]),
+  INLINE_CLOSERS: new Set(["*", "_", "~", "`", ")", "]", "$"]),
 
   // Find the prose block the caret is currently in and convert it.
   formatCurrentBlock(typed) {
@@ -366,8 +415,12 @@ const App = {
   // Convert inline marks inside one prose block while keeping the caret stable.
   liveFormat(host) {
     if (!host || !host.isConnected) return;
+    // A KaTeX-rendered math span owns its inner DOM; re-running text-level
+    // formatting over its content would garble the formula (its textContent
+    // mixes MathML and visual spans). Such a line is considered settled.
+    if (host.querySelector(".math-inline[data-rendered='1']")) return;
     const before = host.textContent;
-    if (!/[`*_~]|\]\(/.test(before)) return;
+    if (!/[`*_~$]|\]\(/.test(before)) return;
     const caret = this.caretOffsetIn(host);
     const html = MdInline.format(before);
     if (html === host.innerHTML) return;

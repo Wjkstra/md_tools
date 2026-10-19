@@ -63,6 +63,16 @@
         // Task checkbox handled by its parent <li>; nothing to emit inline.
         return "";
       }
+      case "span": {
+        // Inline math keeps its TeX in data-tex / textContent; emit $tex$.
+        const cls = attr(node, "class") || "";
+        if (cls.indexOf("math-inline") >= 0) {
+          const tex = attr(node, "data-tex") != null
+            ? attr(node, "data-tex") : node.textContent;
+          return "$" + tex + "$";
+        }
+        return inlineChildren(node);
+      }
       case "p": case "div":
         return inlineChildren(node);
       default:

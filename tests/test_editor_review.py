@@ -246,6 +246,23 @@ class LiveReviewTests(unittest.TestCase):
         data = json.loads(result)
         self.assertTrue(all(data.values()))
 
+    def test_opened_inline_math_is_wrapped_and_renders(self):
+        # Opening a document with $...$ must wrap it (server markdown does not
+        # render math) and KaTeX must paint it; serialization keeps $...$.
+        self._load("能量 $E=mc^2$ 守恒\n")
+        self.wait(lambda: self.js(
+            "document.querySelectorAll('.math-inline').length===1"))
+        self.assertEqual(
+            self.js("document.querySelector('.math-inline').dataset.tex"), "E=mc^2")
+        self.wait(lambda: self.js(
+            "!!document.querySelector('.math-inline .katex')"))
+        md = self.js("HtmlToMd.serialize(document.getElementById('doc'))")
+        self.assertIn("$E=mc^2$", md)
+
+    def test_lone_dollar_is_not_wrapped_as_math(self):
+        self._load("价格 $5，库存 $\n")
+        self.assertEqual(self.js("document.querySelectorAll('.math-inline').length"), 0)
+
     def test_blank_line_via_enter_is_serialized(self):
         self._load("起始段\n")
         self.js(r"""

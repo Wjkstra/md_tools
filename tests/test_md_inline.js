@@ -48,3 +48,16 @@ test("multiple marks in one line", () => {
   assert.equal(f("**a** and *b* and ~~c~~"),
     "<strong>a</strong> and <em>b</em> and <del>c</del>");
 });
+
+test("inline math keeps TeX and stays round-trippable", () => {
+  const html = f("energy $x^2$ here");
+  assert.match(html, /class="math-inline"/);
+  assert.match(html, /data-tex="x\^2"/);
+  // TeX stays as the span text so typing round-trips.
+  assert.match(html, />x\^2</);
+});
+
+test("lone dollar signs are not treated as math", () => {
+  assert.equal(f("cost $5 and $ 7"), "cost $5 and $ 7");
+  assert.equal(f("$ unclosed"), "$ unclosed");
+});

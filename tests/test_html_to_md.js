@@ -142,6 +142,14 @@ test("hr", () => {
   assert.equal(md(root(h("hr"))), "---");
 });
 
+test("inline math span serializes back to $tex$", () => {
+  const doc = root(h("p", {},
+    "energy ",
+    h("span", { class: "math-inline", "data-tex": "x^2" }, "x^2"),
+    " done"));
+  assert.equal(md(doc), "energy $x^2$ done");
+});
+
 test("table with alignment", () => {
   const doc = root(h("table", {},
     h("thead", {}, h("tr", {},

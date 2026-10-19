@@ -32,6 +32,15 @@
         render: (m) => `<a href="${escapeHtml(m[2])}">${format(m[1])}</a>`,
       },
       {
+        // Inline math: $expr$. The span keeps the literal TeX as its text so
+        // typing round-trips; postProcess paints it with KaTeX visually.
+        re: /(?<![\\$])\$([^\s$][^$]*?[^\s$]|[^\s$])\$(?!\w)/,
+        render: (m) => {
+          const tex = m[1];
+          return `<span class="math-inline" data-tex="${escapeHtml(tex)}">${escapeHtml(tex)}</span>`;
+        },
+      },
+      {
         // Strong: the character next to each delimiter must not be whitespace.
         re: /\*\*([^\s*][\s\S]*?[^\s*]|[^\s*])\*\*/,
         render: (m) => `<strong>${format(m[1])}</strong>`,
