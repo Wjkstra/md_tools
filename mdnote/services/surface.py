@@ -127,7 +127,10 @@ def _code_block(block) -> str:
         '<div class="md-code-tools"></div>'
         '<div class="md-code-scroll"><div class="md-code-body">'
         '<pre class="md-code-highlight" aria-hidden="true" inert>'
-        f'<code>{highlight_code(body, lang)}</code></pre>'
+        # Plain-text mirror: Pygments highlighting is applied lazily by the
+        # page only for code blocks near the viewport, avoiding full-document
+        # syntax highlighting on every (re)render of long documents.
+        f'<code>{_html.escape(body)}</code></pre>'
         '<pre class="md-code-area" contenteditable="true" '
         'spellcheck="false" role="textbox" aria-label="代码正文" aria-multiline="true">'
         f'<code>{_html.escape(body) or "<br>"}</code></pre></div></div></div>'

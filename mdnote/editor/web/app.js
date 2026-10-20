@@ -9,6 +9,9 @@
 "use strict";
 
 const App = {
+  // Number of code blocks highlighted eagerly after a render; the rest are
+  // highlighted lazily as they approach the viewport (long-document perf).
+  CODE_HIGHLIGHT_HEAD: 8,
   bridge: null,
   surfaceReady: false,
   activeAtom: null,    // atom element currently in source-edit mode
@@ -186,6 +189,9 @@ const App = {
         const html = JSON.parse(raw);
         const doc = document.getElementById("doc");
         doc.contentEditable = "true";
+        // Disconnect lazy-highlight observers before replacing the DOM so
+        // repeated surface rebuilds don't accumulate IntersectionObservers.
+        doc.querySelectorAll(".md-code").forEach((b) => b._codeObserver?.disconnect());
         doc.innerHTML = html;
         this.wrapInlineMath(doc);
         this.postProcess(doc);
@@ -198,7 +204,20 @@ const App = {
 
   // Set up persistent code editors and render Mermaid atoms.
   postProcess(doc) {
-    doc.querySelectorAll(".md-code").forEach(block=>{this.setupCode(block);this.refreshCode(block);});
+    // setupCode installs an IntersectionObserver that highlights a block
+    // only when it nears the viewport, so a long document does not run
+    // Pygments over every code block on each (re)render. Highlight the
+    // first few (above-the-fold) blocks immediately so opening a document
+    // shows colored code without waiting for an observer callback.
+    const codeBlocks = doc.querySelectorAll(".md-code");
+    codeBlocks.forEach((block, index) => {
+      this.setupCode(block);
+      if (index < App.CODE_HIGHLIGHT_HEAD) {
+        this.refreshCode(block);
+        block._codeObserver?.disconnect();
+        block._codeObserver = null;
+      }
+    });
     this.applyCodePrefs();
     doc.querySelectorAll("table").forEach(table=>table.title="Ctrl+Enter 新增行 · Alt+Enter 新增列 · Tab 下一个单元格");
     // Task checkboxes are enabled for display; toggling is handled once by
@@ -740,6 +759,23 @@ const App = {
     numbers.className="md-code-numbers";numbers.setAttribute("aria-hidden","true");
     area.parentElement.prepend(numbers);
 
+    // Lazy syntax highlighting: highlight once when the block scrolls near
+    // the viewport. The block shows plain monospaced text until then, which
+    // keeps initial render of huge documents off the main thread.
+    if ("IntersectionObserver" in window && !block._codeObserver) {
+      block._codeObserver = new IntersectionObserver((entries, obs) => {
+        for (const entry of entries) {
+          if (entry.isIntersecting) {
+            this.refreshCode(block);
+            obs.unobserve(block);
+            block._codeObserver = null;
+          }
+        }
+      }, { root: null, rootMargin: "600px 0px" });
+      block._codeObserver.observe(block);
+    } else {
+      this.refreshCode(block);
+    }
   },
 
   refreshCode(block) {

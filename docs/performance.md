@@ -49,19 +49,17 @@
 这样连续输入期间不会逐字触发统计、大纲或文件写入，
 只有停顿后才做一次更新。
 
-## 4. 缓存策略
+## 4. 缓存与按需计算策略
 
-| 缓存 | 实现 | 作用 / 失效方式 |
+| 机制 | 实现 | 作用 / 失效方式 |
 | --- | --- | --- |
-| 块渲染结果 | `_render_block` 上的 `functools.lru_cache(512)` | 以 raw 为键复用渲染输出；raw 变化即新键 |
-| Mermaid 结果 | 页面端按图表源码 | 相同源码不重复渲染；源码 / 主题变化时重绘 |
-| KaTeX | 页面端按公式内容 | 相同公式输出稳定结果 |
+| 代码块语法高亮 | 页面端 IntersectionObserver 懒高亮 | 仅高亮进入视口（含 600px 余量）的代码块；首屏前 `CODE_HIGHLIGHT_HEAD`（8）个立即高亮 |
+| Mermaid 结果 | 页面端按图表源码标记 dataset.rendered | 相同源码不重复渲染；开关设置或源码变化时重绘 |
+| KaTeX | 页面端按公式 data-tex / data-md 标记 | 已渲染的公式不重复调用 KaTeX |
 
-块 id 由 `type|lang|raw` 的哈希得到，任何内容修改都会改变 id，
-从机制上避免误用旧缓存。
-
-此外，大纲在重建时会先比较新旧条目（文本 + 块索引），**完全相同则跳过 DOM 重写**，
-并保持当前选中行，避免无变化时的重复渲染与选中跳动。
+渲染后模式是一个连续 contenteditable 表面（见
+[data-model.md](data-model.md)），结构由 Python 端 `surface_html` 平铺生成，
+派生数据（字数统计、大纲）在输入停顿后才计算并比较前后差异，**无变化时跳过 DOM 更新**。
 
 ## 5. 安装体积控制
 
@@ -91,30 +89,34 @@ PyInstaller 打包时通过 `excludes` 排除项目不使用的大型依赖：
 解析复杂度与行数成线性关系；文末挂尾块不改变文本，
 序列化结果与输入逐字符一致。
 
-### 编辑器变换（单元测试）
+### 编辑器变换与序列化（单元测试）
 
-- 33 项变换用例（各块类型的回车、合并、缩进、空格触发、包裹、序列化往返）
+- 行内 Markdown 即时转换、HTML→Markdown 反向序列化、代码编辑等用例
   全部通过，执行时间为毫秒级
-- 见 `tests/test_editor.py`，运行：`python tests/test_editor.py`
+- JS 用例：`node --test tests/test_md_inline.js tests/test_html_to_md.js tests/test_code_editing.js`
+- Python 用例：`python -m unittest discover -s tests`（含真实 WebEngine 交互）
 
-## 7. 超长文档的按需排版（窗口化）
+### 渲染后模式（WebEngine 连续表面）
 
-当块数超过阈值（`WINDOW_THRESHOLD`）时，渲染后模式不再一次性排版整篇，
-而是只让视口附近（含上下 `VIEWPORT_PAD` 余量）的块进入真实排版：
+- 实时模式将整篇文档平铺渲染为**一个** contenteditable 元素，选区可跨块，
+  Markdown 标记在键入时即时转换
+- **代码块语法高亮按需进行**：`surface_html` 不预渲染 Pygments，只输出纯文本
+  镜像；页面为每个代码块安装 IntersectionObserver，滚动接近视口时才通过
+  QWebChannel 调用 Pygments 高亮，避免长文档每次渲染都高亮全部代码块
+- 首屏前 `CODE_HIGHLIGHT_HEAD`（默认 8）个代码块立即高亮，保证打开即见彩色代码
+- 重建表面前会断开所有代码块的 IntersectionObserver，避免反复加载累积
+- 图表（Mermaid）、公式（KaTeX）在 `postProcess` 中处理，均带「已渲染」标记，
+  相同内容不重复计算
 
-1. 每个块维护一份高度：先按类型 / 字符数估算，块挂载后用实测高度校正并缓存
-2. 由累计块高算出当前滚动位置对应的「挂载区间」，区间内的块填充真实内容并做公式 / 图表后处理
-3. 区间外的块替换为等高占位（保留可点击外壳与滚动条高度），滚动时经 rAF 增量挂载 / 卸载
-4. 挂载带来的高度校正若发生在视口上方，按差值补偿 `scrollY`，避免内容跳动
+## 7. 超长文档的后续优化方向
 
-效果：DOM 中真实排版的块数只取决于视口大小，与文档总长度无关；
-该路径由集成测试 `test_long_document_windowing_only_mounts_near_viewport` 覆盖。
+当前连续表面对超长文档（万段级）的主要成本是 Python 端整篇 `surface_html`
+与 QWebChannel 全量 HTML 传输。已通过去除全文 Pygments 预渲染降低开销，
+仍可继续：
 
-### 仍可增强的方向
-
-1. 重渲染时进一步只更新变化的块（更细的增量提交）
-2. 将批量解析、导出等耗时操作移入 `QThreadPool`
-3. 按文档规模调整 WebEngine 的缓存与栅格化策略
+1. 增量提交：重渲染时只更新发生变化的块，而非整篇 innerHTML
+2. 视口窗口化：区间外块替换为等高占位，滚动时经 rAF 挂载 / 卸载（保留滚动补偿）
+3. 将批量解析、导出等耗时操作移入工作线程，避免阻塞 UI
 
 ## 8. 性能准则（贡献者）
 
