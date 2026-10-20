@@ -6,7 +6,10 @@ const f = MdInline.format;
 test("plain text and escaping", () => {
   assert.equal(f("普通文本"), "普通文本");
   assert.equal(f("a < b & c > d"), "a &lt; b &amp; c &gt; d");
-  assert.equal(f("\\*not italic\\*"), "*not italic*");
+  // Escaped asterisk stays a literal (md-literal span), not emphasis.
+  const escaped = f("\\*not italic\\*");
+  assert.match(escaped, /md-literal/);
+  assert.doesNotMatch(escaped, /<(em|strong)>/);
 });
 
 test("strong, em, strike", () => {
@@ -60,4 +63,14 @@ test("inline math keeps TeX and stays round-trippable", () => {
 test("lone dollar signs are not treated as math", () => {
   assert.equal(f("cost $5 and $ 7"), "cost $5 and $ 7");
   assert.equal(f("$ unclosed"), "$ unclosed");
+});
+
+test("escaped markdown punctuation is preserved for round trip", () => {
+  // Visually a bare asterisk, but data-md keeps the backslash so saving
+  // does not turn it into emphasis.
+  const html = f("literal \\*asterisk\\* end");
+  assert.match(html, /class="md-literal"/);
+  assert.match(html, /data-md="\\\*"/);
+  // The emphasis must not have formed.
+  assert.doesNotMatch(html, /<(strong|em)>/);
 });

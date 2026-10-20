@@ -49,6 +49,16 @@ class SurfaceRenderTests(unittest.TestCase):
         self.assertIn("math-render", html)
         self.assertIn("$$", html)
 
+    def test_backslash_escape_is_preserved_as_literal_span(self):
+        # literal \* must not become emphasis and keeps the backslash so a
+        # surface -> Markdown round trip restores the source.
+        html = surface_html(r"literal \*asterisk\* end")
+        self.assertIn("md-literal", html)
+        self.assertIn('data-md="\\*"', html)
+        self.assertNotIn("<em>", html)
+        self.assertNotIn("<strong>", html)
+
+
 
 if __name__ == "__main__":
     unittest.main()

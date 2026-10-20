@@ -64,12 +64,16 @@
         return "";
       }
       case "span": {
-        // Inline math keeps its TeX in data-tex / textContent; emit $tex$.
         const cls = attr(node, "class") || "";
+        // Inline math keeps its TeX in data-tex; emit $tex$.
         if (cls.indexOf("math-inline") >= 0) {
           const tex = attr(node, "data-tex") != null
             ? attr(node, "data-tex") : node.textContent;
           return "$" + tex + "$";
+        }
+        // Escaped literal (e.g. \*) restored verbatim from data-md.
+        if (cls.indexOf("md-literal") >= 0 && attr(node, "data-md") != null) {
+          return attr(node, "data-md");
         }
         return inlineChildren(node);
       }

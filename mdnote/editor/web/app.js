@@ -419,6 +419,9 @@ const App = {
     // formatting over its content would garble the formula (its textContent
     // mixes MathML and visual spans). Such a line is considered settled.
     if (host.querySelector(".math-inline[data-rendered='1']")) return;
+    // Settled escape-literal spans (e.g. \*) own their source too; rebuilding
+    // from textContent would drop the backslash and could turn "*" italic.
+    if (host.querySelector(".md-literal")) return;
     const before = host.textContent;
     if (!/[`*_~$]|\]\(/.test(before)) return;
     const caret = this.caretOffsetIn(host);

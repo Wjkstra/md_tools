@@ -73,8 +73,12 @@
       const ch = text[i];
       if (ch === "\\") {
         const next = text[i + 1];
-        if (next && "`*_~[]()!\\".includes(next)) {
-          out += escapeHtml(next); i += 2; continue;
+        if (next && "`*_~[]()!#<>\\".includes(next)) {
+          // Preserve the escape so saving restores "\X" instead of turning a
+          // literal asterisk into emphasis. Visual shows the bare character.
+          out += `<span class="md-literal" data-md="\\${escapeHtml(next)}">`
+            + escapeHtml(next) + "</span>";
+          i += 2; continue;
         }
         out += escapeHtml("\\"); i += 1; continue;
       }
@@ -93,7 +97,16 @@
       }
       // Earliest future match: emit literal text up to it and loop.
       if (chosen) {
-        out += escapeHtml(text.slice(i, i + chosen.index));
+        const segment = text.slice(i, i + chosen.index);
+        // Do not leap over a backslash escape in the skipped segment: stop
+        // on the backslash so the escape branch above handles the next char.
+        const slash = segment.indexOf("\\");
+        if (slash >= 0) {
+          out += escapeHtml(text.slice(i, i + slash));
+          i += slash;
+          continue;
+        }
+        out += escapeHtml(segment);
         i += chosen.index;
         continue;
       }

@@ -150,6 +150,15 @@ test("inline math span serializes back to $tex$", () => {
   assert.equal(md(doc), "energy $x^2$ done");
 });
 
+test("escaped literal span restores the backslash", () => {
+  const doc = root(h("p", {},
+    "literal ",
+    h("span", { class: "md-literal", "data-md": "\\*" }, "*"),
+    "asterisk",
+    h("span", { class: "md-literal", "data-md": "\\*" }, "*")));
+  assert.equal(md(doc), "literal \\*asterisk\\*");
+});
+
 test("table with alignment", () => {
   const doc = root(h("table", {},
     h("thead", {}, h("tr", {},

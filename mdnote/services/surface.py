@@ -58,7 +58,25 @@ def _atom(atom_class: str, source_md: str, inner: str) -> str:
 
 
 def _render_editable(raw: str) -> str:
-    return _clean(markdown_engine().render(raw))
+    # Preserve backslash escapes across the render round trip: swap
+    # "\X" for private-use placeholders before markdown, then turn the
+    # surviving placeholders into md-literal spans that html_to_md restores.
+    kept: list[str] = []
+
+    def keep(match: "re.Match") -> str:
+        kept.append(match.group(1))
+        return f"{len(kept) - 1}"
+
+    tokened = re.sub(r"\\([\\`*_{}\[\]()#+\-.!<>~|$])", keep, raw)
+    html = _clean(markdown_engine().render(tokened))
+
+    def restore(match: "re.Match") -> str:
+        index = int(match.group(1))
+        char = kept[index]
+        return (f'<span class="md-literal" data-md="\\{_html.escape(char, quote=True)}">'
+                f"{_html.escape(char)}</span>")
+
+    return re.sub(r"(\d+)", restore, html)
 
 
 def fenced_body(raw: str) -> str:
