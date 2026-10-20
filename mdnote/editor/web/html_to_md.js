@@ -42,7 +42,7 @@
       case "em": case "i":
         return "*" + inlineChildren(node) + "*";
       case "code":
-        return "`" + node.textContent + "`";
+        return inlineCode(node.textContent);
       case "del": case "s":
         return "~~" + inlineChildren(node) + "~~";
       case "a": {
@@ -101,6 +101,19 @@
       out += piece;
     });
     return out;
+  }
+
+  // Serialize inline code with a fence long enough to contain any
+  // backticks in the content (CommonMark): ``a`b`` for content with one.
+  function inlineCode(text) {
+    let longest = 0, m;
+    const re = /`+/g;
+    while ((m = re.exec(text)) !== null) {
+      if (m[0].length > longest) longest = m[0].length;
+    }
+    const fence = '`'.repeat(longest + 1);
+    const pad = /^`|`$/.test(text) ? ' ' : '';
+    return fence + pad + text + pad + fence;
   }
 
   // A blank structural line: empty or just a <br>.

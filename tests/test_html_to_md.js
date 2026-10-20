@@ -56,6 +56,14 @@ test("headings and paragraph inline marks", () => {
   ].join("\n\n"));
 });
 
+test("inline code picks a fence that contains its backticks", () => {
+  assert.equal(md(root(h("p", {}, h("code", {}, "x=1")))), "`x=1`");
+  // Content holding a backtick needs a longer (double-backtick) fence.
+  assert.equal(md(root(h("p", {}, h("code", {}, "a`b")))), "``a`b``");
+  // Content starting/ending with a backtick needs surrounding spaces.
+  assert.equal(md(root(h("p", {}, h("code", {}, "`x`")))), "`` `x` ``");
+});
+
 test("links, images and br line breaks", () => {
   const doc = root(h("p", {},
     h("a", { href: "https://a.com" }, "链接"),
