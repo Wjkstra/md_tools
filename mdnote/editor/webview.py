@@ -175,8 +175,6 @@ class WebPreview(QWebEngineView):
 
     def flush_surface(self) -> bool:
         """Capture pending input before a synchronous save or mode switch."""
-        if not self._app_ready:
-            return True  # The model is authoritative before the initial load.
         from PySide6.QtCore import QEventLoop, QTimer
         result = []
         loop = QEventLoop()
@@ -185,13 +183,35 @@ class WebPreview(QWebEngineView):
         timer.timeout.connect(loop.quit)
 
         def received(value):
-            result.append(value)
-            loop.quit()
+            if not timer.isActive():
+                return
+            try:
+                captured = json.loads(value)
+            except (ValueError, TypeError):
+                loop.quit()
+                return
+            if (isinstance(captured, dict) and captured.get("ready") is True
+                    and isinstance(captured.get("text"), str)):
+                result.append(captured["text"])
+                loop.quit()
+            else:
+                QTimer.singleShot(20, capture)
 
-        self.page().runJavaScript(
-            "typeof App !== 'undefined' && App.surfaceReady"
-            " ? App.captureMarkdown() : null", received)
+        def capture():
+            if not timer.isActive():
+                return
+            if not self._app_ready:
+                QTimer.singleShot(20, capture)
+                return
+            self.page().runJavaScript(
+                "(() => { try {"
+                "if (typeof App === 'undefined' || !App.surfaceReady)"
+                "return JSON.stringify({ready:false});"
+                "return JSON.stringify({ready:true,text:App.captureMarkdown()});"
+                "} catch (_) { return JSON.stringify({ready:false}); } })()", received)
+
         timer.start(1200)
+        capture()
         if not result:
             loop.exec()
         timer.stop()

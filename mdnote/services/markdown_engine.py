@@ -69,10 +69,31 @@ def pygments_css() -> str:
 BASE_EXTENSIONS = ["extra", "nl2br", "sane_lists", "toc", "codehilite"]
 
 
+class _SurfaceEscapeExtension(Extension):
+    def extendMarkdown(self, md):
+        from markdown.inlinepatterns import InlineProcessor
+        from markdown.util import AtomicString
+        from xml.etree.ElementTree import Element
+
+        class LiteralEscape(InlineProcessor):
+            def handleMatch(self, match, data):
+                if not getattr(self.md, "surface_mode", False):
+                    return None, None, None
+                char = match.group(1)
+                span = Element("span", {"class": "md-literal", "data-md": "\\" + char})
+                span.text = AtomicString(char)
+                return span, match.start(0), match.end(0)
+
+        # Code spans have priority 190; escaped prose is handled before the
+        # standard escape processor (180), after code has become literal text.
+        md.inlinePatterns.register(LiteralEscape(r"\\([\\`*_{}\[\]()#+\-.!<>~|$])", md),
+                                   "surface_escape", 181)
+
+
 class MarkdownEngine:
     def __init__(self, plugin_extensions: list | None = None) -> None:
         self._md = markdown.Markdown(
-            extensions=BASE_EXTENSIONS + [_MermaidExtension()] + list(plugin_extensions or []),
+            extensions=BASE_EXTENSIONS + [_MermaidExtension(), _SurfaceEscapeExtension()] + list(plugin_extensions or []),
             extension_configs={
                 "codehilite": {"guess_language": False, "use_pygments": True},
                 "toc": {"permalink": False},
@@ -82,9 +103,13 @@ class MarkdownEngine:
     def add_extension(self, extension: Extension) -> None:
         self._md.registerExtensions([extension], {})
 
-    def render(self, raw: str) -> str:
+    def render(self, raw: str, *, surface: bool = False) -> str:
         self._md.reset()
-        return _TASK_RE.sub(_replace_task, self._md.convert(raw))
+        self._md.surface_mode = surface
+        try:
+            return _TASK_RE.sub(_replace_task, self._md.convert(raw))
+        finally:
+            self._md.surface_mode = False
 
 
 _engine: MarkdownEngine | None = None

@@ -1,0 +1,528 @@
+{
+  "date": "2026-10-21",
+  "baseline": "10fbb28",
+  "version": "0.3.5",
+  "python_tests": {
+    "first": {
+      "total": 127,
+      "passed": 125,
+      "failed": 1,
+      "skipped": 1,
+      "seconds": 51.436
+    },
+    "rerun": {
+      "total": 127,
+      "passed": 126,
+      "failed": 0,
+      "skipped": 1,
+      "seconds": 54.395
+    },
+    "table_case_repeats": {
+      "total": 5,
+      "passed": 5
+    }
+  },
+  "standalone_assertions": {
+    "plugin": 8,
+    "search": 11
+  },
+  "javascript_tests": {
+    "total": 39,
+    "passed": 39
+  },
+  "static": {
+    "baseline": "10fbb28",
+    "python_ast_files": 47,
+    "javascript_syntax": [
+      {
+        "file": "mdnote\\editor\\web\\app.js",
+        "exit_code": 0,
+        "stderr": ""
+      },
+      {
+        "file": "mdnote\\editor\\web\\code_editor.js",
+        "exit_code": 0,
+        "stderr": ""
+      },
+      {
+        "file": "mdnote\\editor\\web\\html_to_md.js",
+        "exit_code": 0,
+        "stderr": ""
+      },
+      {
+        "file": "mdnote\\editor\\web\\md_inline.js",
+        "exit_code": 0,
+        "stderr": ""
+      },
+      {
+        "file": "tests\\test_code_editing.js",
+        "exit_code": 0,
+        "stderr": ""
+      },
+      {
+        "file": "tests\\test_html_to_md.js",
+        "exit_code": 0,
+        "stderr": ""
+      },
+      {
+        "file": "tests\\test_md_inline.js",
+        "exit_code": 0,
+        "stderr": ""
+      }
+    ],
+    "web_assets": 69,
+    "different_web_assets": [
+      "styles.css"
+    ],
+    "packaged_modules_compared": 30,
+    "different_packaged_modules": [
+      "mdnote.editor.webview"
+    ],
+    "packaged_version_constants": [
+      "MdNote native application package.",
+      "0.3.5",
+      null
+    ],
+    "manifest": {
+      "version": "0.3.5",
+      "notes": "本次更新内容：\n\n- 实时模式支持行内数学公式（$...$），块公式用 KaTeX 渲染\n- 修复反斜杠转义在实时编辑中丢失（literal \\* 不再变成斜体）\n- 修复含反引号的行内代码分隔符（双反引号）被破坏\n- 长文档代码块改为进入视口时才语法高亮，大幅降低打开/渲染耗时\n- 实时模式相对图片按文档目录显示、大纲空行定位、公式与 Mermaid 等延续 0.3.4 修复",
+      "url": "https://github.com/Wjkstra/md_tools/releases/download/v0.3.5/MdNote-Setup-0.3.5.exe",
+      "sha256": "be24e7607aaacfff288b17641bf6089f62ae93c0abb79bc00dbf822e260c8de7"
+    },
+    "installer_sha256": "be24e7607aaacfff288b17641bf6089f62ae93c0abb79bc00dbf822e260c8de7",
+    "installer_matches_manifest": true,
+    "pip_check": {
+      "exit_code": 0,
+      "stdout": "No broken requirements found.\n",
+      "stderr": ""
+    }
+  },
+  "probe": {
+    "roundtrip": {
+      "plain": {
+        "source": "中文 😀 **bold** and *italic*",
+        "captured": "中文 😀 **bold** and *italic*",
+        "exact": true,
+        "render_before": "<p>中文 😀 <strong>bold</strong> and <em>italic</em></p>",
+        "render_after": "<p>中文 😀 <strong>bold</strong> and <em>italic</em></p>",
+        "dom": "<p data-model-index=\"0\">中文 😀 <strong>bold</strong> and <em>italic</em></p><p class=\"surface-end\"><br></p>"
+      },
+      "escape": {
+        "source": "literal \\*asterisk\\* and \\[brackets\\]",
+        "captured": "literal \\*asterisk\\* and \\[brackets\\]",
+        "exact": true,
+        "render_before": "<p>literal *asterisk* and [brackets]</p>",
+        "render_after": "<p>literal *asterisk* and [brackets]</p>",
+        "dom": "<p data-model-index=\"0\">literal <span class=\"md-literal\" data-md=\"\\*\">*</span>asterisk<span class=\"md-literal\" data-md=\"\\*\">*</span> and <span class=\"md-literal\" data-md=\"\\[\">[</span>brackets<span class=\"md-literal\" data-md=\"\\]\">]</span></p><p class=\"surface-end\"><br></p>"
+      },
+      "escaped_html": {
+        "source": "&lt;em&gt;literal&lt;/em&gt;",
+        "captured": "<em>literal</em>",
+        "exact": false,
+        "render_before": "<p>&lt;em&gt;literal&lt;/em&gt;</p>",
+        "render_after": "<p><em>literal</em></p>",
+        "dom": "<p data-model-index=\"0\">&lt;em&gt;literal&lt;/em&gt;</p><p class=\"surface-end\"><br></p>"
+      },
+      "escaped_entity": {
+        "source": "&amp;copy; and &lt;img src=x&gt;",
+        "captured": "&copy; and <img src=x>",
+        "exact": false,
+        "render_before": "<p>&amp;copy; and &lt;img src=x&gt;</p>",
+        "render_after": "<p>&copy; and <img src=x></p>",
+        "dom": "<p data-model-index=\"0\">&amp;copy; and &lt;img src=x&gt;</p><p class=\"surface-end\"><br></p>"
+      },
+      "inline_backtick": {
+        "source": "Use ``a`b`` here",
+        "captured": "Use ``a`b`` here",
+        "exact": true,
+        "render_before": "<p>Use <code>a`b</code> here</p>",
+        "render_after": "<p>Use <code>a`b</code> here</p>",
+        "dom": "<p data-model-index=\"0\">Use <code>a`b</code> here</p><p class=\"surface-end\"><br></p>"
+      },
+      "inline_code_space": {
+        "source": "Use ` x ` here",
+        "captured": "Use `x` here",
+        "exact": false,
+        "render_before": "<p>Use <code>x</code> here</p>",
+        "render_after": "<p>Use <code>x</code> here</p>",
+        "dom": "<p data-model-index=\"0\">Use <code>x</code> here</p><p class=\"surface-end\"><br></p>"
+      },
+      "inline_code_escaped": {
+        "source": "Use `\\*literal\\*` here",
+        "captured": "Use `*literal*` here",
+        "exact": false,
+        "render_before": "<p>Use <code>\\*literal\\*</code> here</p>",
+        "render_after": "<p>Use <code>*literal*</code> here</p>",
+        "dom": "<p data-model-index=\"0\">Use <code><span class=\"md-literal\" data-md=\"\\*\">*</span>literal<span class=\"md-literal\" data-md=\"\\*\">*</span></code> here</p><p class=\"surface-end\"><br></p>"
+      },
+      "reference": {
+        "source": "[website][ref]\n\n[ref]: https://example.invalid/ \"Title\"",
+        "captured": "[website][ref]\n\n[ref]: https://example.invalid/ \"Title\"",
+        "exact": true,
+        "render_before": "<p><a href=\"https://example.invalid/\" title=\"Title\">website</a></p>",
+        "render_after": "<p><a href=\"https://example.invalid/\" title=\"Title\">website</a></p>",
+        "dom": "<p data-model-index=\"0\">[website][ref]</p><div data-model-index=\"1\" class=\"md-atom atom-reference-def\" contenteditable=\"false\" data-md=\"[ref]: https://example.invalid/ &quot;Title&quot;\"><div class=\"atom-label\">引用定义</div><pre>[ref]: https://example.invalid/ \"Title\"</pre></div><p class=\"surface-end\"><br></p>"
+      },
+      "footnote": {
+        "source": "A footnote[^n].\n\n[^n]: Footnote body.",
+        "captured": "A footnote[^n].\n\n[^n]: Footnote body.",
+        "exact": true,
+        "render_before": "<p>A footnote<sup id=\"fnref:n\"><a class=\"footnote-ref\" href=\"#fn:n\">1</a></sup>.</p>\n<div class=\"footnote\">\n<hr />\n<ol>\n<li id=\"fn:n\">\n<p>Footnote body.&#160;<a class=\"footnote-backref\" href=\"#fnref:n\" title=\"Jump back to footnote 1 in the text\">&#8617;</a></p>\n</li>\n</ol>\n</div>",
+        "render_after": "<p>A footnote<sup id=\"fnref:n\"><a class=\"footnote-ref\" href=\"#fn:n\">1</a></sup>.</p>\n<div class=\"footnote\">\n<hr />\n<ol>\n<li id=\"fn:n\">\n<p>Footnote body.&#160;<a class=\"footnote-backref\" href=\"#fnref:n\" title=\"Jump back to footnote 1 in the text\">&#8617;</a></p>\n</li>\n</ol>\n</div>",
+        "dom": "<p data-model-index=\"0\">A footnote[^n].</p><div data-model-index=\"1\" class=\"md-atom atom-footnote-def\" contenteditable=\"false\" data-md=\"[^n]: Footnote body.\"><div class=\"atom-label\">脚注定义</div><pre>[^n]: Footnote body.</pre></div><p class=\"surface-end\"><br></p>"
+      },
+      "link_title": {
+        "source": "[site](https://example.invalid/ \"Helpful title\")",
+        "captured": "[site](https://example.invalid/)",
+        "exact": false,
+        "render_before": "<p><a href=\"https://example.invalid/\" title=\"Helpful title\">site</a></p>",
+        "render_after": "<p><a href=\"https://example.invalid/\">site</a></p>",
+        "dom": "<p data-model-index=\"0\"><a href=\"https://example.invalid/\" rel=\"noopener noreferrer\">site</a></p><p class=\"surface-end\"><br></p>"
+      },
+      "nested_list": {
+        "source": "- parent\n    - child\n- sibling",
+        "captured": "- parent\n    - child\n- sibling",
+        "exact": true,
+        "render_before": "<ul>\n<li>parent<ul>\n<li>child</li>\n</ul>\n</li>\n<li>sibling</li>\n</ul>",
+        "render_after": "<ul>\n<li>parent<ul>\n<li>child</li>\n</ul>\n</li>\n<li>sibling</li>\n</ul>",
+        "dom": "<ul data-model-index=\"0\">\n<li>parent<ul>\n<li>child</li>\n</ul>\n</li>\n<li>sibling</li>\n</ul><p class=\"surface-end\"><br></p>"
+      },
+      "loose_list": {
+        "source": "- first paragraph\n\n    second paragraph\n\n- next item",
+        "captured": "- \nfirst paragraph\nsecond paragraph\n- \nnext item",
+        "exact": false,
+        "render_before": "<ul>\n<li>\n<p>first paragraph</p>\n<p>second paragraph</p>\n</li>\n<li>\n<p>next item</p>\n</li>\n</ul>",
+        "render_after": "<ul>\n<li>first paragraph<br />\nsecond paragraph</li>\n<li>next item</li>\n</ul>",
+        "dom": "<ul data-model-index=\"0\">\n<li>\n<p>first paragraph</p>\n<p>second paragraph</p>\n</li>\n<li>\n<p>next item</p>\n</li>\n</ul><p class=\"surface-end\"><br></p>"
+      },
+      "multi_nested_list": {
+        "source": "- parent\n    - first nested\n\n    1. second nested\n- sibling",
+        "captured": "- \nparent\n    - first nested",
+        "exact": false,
+        "render_before": "<ul>\n<li>\n<p>parent</p>\n<ul>\n<li>first nested</li>\n</ul>\n<ol>\n<li>second nested<br />\n- sibling</li>\n</ol>\n</li>\n</ul>",
+        "render_after": "<ul>\n<li>parent<ul>\n<li>first nested</li>\n</ul>\n</li>\n</ul>",
+        "dom": "<ul data-model-index=\"0\">\n<li>\n<p>parent</p>\n<ul>\n<li>first nested</li>\n</ul>\n<ol>\n<li>second nested<br>\n- sibling</li>\n</ol>\n</li>\n</ul><p class=\"surface-end\"><br></p>"
+      },
+      "ordered_start": {
+        "source": "5. Five\n6. Six",
+        "captured": "5. Five\n6. Six",
+        "exact": true,
+        "render_before": "<ol start=\"5\">\n<li>Five</li>\n<li>Six</li>\n</ol>",
+        "render_after": "<ol start=\"5\">\n<li>Five</li>\n<li>Six</li>\n</ol>",
+        "dom": "<ol data-model-index=\"0\" start=\"5\">\n<li>Five</li>\n<li>Six</li>\n</ol><p class=\"surface-end\"><br></p>"
+      },
+      "definition_list": {
+        "source": "Term\n: Definition",
+        "captured": "\nTerm\nDefinition\n",
+        "exact": false,
+        "render_before": "<dl>\n<dt>Term</dt>\n<dd>Definition</dd>\n</dl>",
+        "render_after": "<p>Term<br />\nDefinition</p>",
+        "dom": "<dl data-model-index=\"0\">\n<dt>Term</dt>\n<dd>Definition</dd>\n</dl><p class=\"surface-end\"><br></p>"
+      },
+      "table": {
+        "source": "| Name | Value |\n| :--- | ---: |\n| **bold** | `x` |",
+        "captured": "| Name | Value |\n| :--- | ---: |\n| **bold** | `x` |",
+        "exact": true,
+        "render_before": "<table>\n<thead>\n<tr>\n<th style=\"text-align: left;\">Name</th>\n<th style=\"text-align: right;\">Value</th>\n</tr>\n</thead>\n<tbody>\n<tr>\n<td style=\"text-align: left;\"><strong>bold</strong></td>\n<td style=\"text-align: right;\"><code>x</code></td>\n</tr>\n</tbody>\n</table>",
+        "render_after": "<table>\n<thead>\n<tr>\n<th style=\"text-align: left;\">Name</th>\n<th style=\"text-align: right;\">Value</th>\n</tr>\n</thead>\n<tbody>\n<tr>\n<td style=\"text-align: left;\"><strong>bold</strong></td>\n<td style=\"text-align: right;\"><code>x</code></td>\n</tr>\n</tbody>\n</table>",
+        "dom": "<table data-model-index=\"0\" title=\"Ctrl+Enter 新增行 · Alt+Enter 新增列 · Tab 下一个单元格\">\n<thead>\n<tr>\n<th style=\"text-align:left\">Name</th>\n<th style=\"text-align:right\">Value</th>\n</tr>\n</thead>\n<tbody>\n<tr>\n<td style=\"text-align:left\"><strong>bold</strong></td>\n<td style=\"text-align:right\"><code>x</code></td>\n</tr>\n</tbody>\n</table><p class=\"surface-end\"><br></p>"
+      },
+      "table_pipe": {
+        "source": "| A | B |\n| --- | --- |\n| a\\|b | c |",
+        "captured": "| A | B |\n| --- | --- |\n| a\\\\|b | c |",
+        "exact": false,
+        "render_before": "<table>\n<thead>\n<tr>\n<th>A</th>\n<th>B</th>\n</tr>\n</thead>\n<tbody>\n<tr>\n<td>a|b</td>\n<td>c</td>\n</tr>\n</tbody>\n</table>",
+        "render_after": "<table>\n<thead>\n<tr>\n<th>A</th>\n<th>B</th>\n</tr>\n</thead>\n<tbody>\n<tr>\n<td>a\\</td>\n<td>b</td>\n</tr>\n</tbody>\n</table>",
+        "dom": "<table data-model-index=\"0\" title=\"Ctrl+Enter 新增行 · Alt+Enter 新增列 · Tab 下一个单元格\">\n<thead>\n<tr>\n<th>A</th>\n<th>B</th>\n</tr>\n</thead>\n<tbody>\n<tr>\n<td>a<span class=\"md-literal\" data-md=\"\\|\">|</span>b</td>\n<td>c</td>\n</tr>\n</tbody>\n</table><p class=\"surface-end\"><br></p>"
+      },
+      "table_code_pipe": {
+        "source": "| A | B |\n| --- | --- |\n| `a\\|b` | c |",
+        "captured": "| A | B |\n| --- | --- |\n| `a\\|b` | c |",
+        "exact": true,
+        "render_before": "<table>\n<thead>\n<tr>\n<th>A</th>\n<th>B</th>\n</tr>\n</thead>\n<tbody>\n<tr>\n<td><code>a\\|b</code></td>\n<td>c</td>\n</tr>\n</tbody>\n</table>",
+        "render_after": "<table>\n<thead>\n<tr>\n<th>A</th>\n<th>B</th>\n</tr>\n</thead>\n<tbody>\n<tr>\n<td><code>a\\|b</code></td>\n<td>c</td>\n</tr>\n</tbody>\n</table>",
+        "dom": "<table data-model-index=\"0\" title=\"Ctrl+Enter 新增行 · Alt+Enter 新增列 · Tab 下一个单元格\">\n<thead>\n<tr>\n<th>A</th>\n<th>B</th>\n</tr>\n</thead>\n<tbody>\n<tr>\n<td><code>a<span class=\"md-literal\" data-md=\"\\|\">|</span>b</code></td>\n<td>c</td>\n</tr>\n</tbody>\n</table><p class=\"surface-end\"><br></p>"
+      },
+      "code": {
+        "source": "```python\nprint(\"x\")\n```",
+        "captured": "```python\nprint(\"x\")\n```",
+        "exact": true,
+        "render_before": "<div class=\"codehilite\"><pre><span></span><code><span class=\"nb\">print</span><span class=\"p\">(</span><span class=\"s2\">\"x\"</span><span class=\"p\">)</span>\n</code></pre></div>",
+        "render_after": "<div class=\"codehilite\"><pre><span></span><code><span class=\"nb\">print</span><span class=\"p\">(</span><span class=\"s2\">\"x\"</span><span class=\"p\">)</span>\n</code></pre></div>",
+        "dom": "<div data-model-index=\"0\" class=\"md-code has-line-numbers\" contenteditable=\"false\" data-lang=\"python\" data-source=\"print(&quot;x&quot;)\" data-original-lang=\"python\" data-md=\"```python\nprint(&quot;x&quot;)\n```\" style=\"--tab-size: 2;\"><span class=\"md-code-lang\" hidden=\"\">python</span><div class=\"md-code-tools\"><span class=\"md-code-lang-picker\"><input type=\"text\" class=\"md-code-language\" aria-label=\"代码语言\" spellcheck=\"false\" autocomplete=\"off\" placeholder=\"纯文本\" title=\"输入语言（如 c 联想 C/C++/C#），或点击选择\"><div class=\"md-code-lang-list\" hidden=\"\"></div></span><span class=\"md-code-hint\">Tab 缩进 · Ctrl+Enter 退出</span><button type=\"button\" title=\"复制代码正文\">复制</button></div><div class=\"md-code-scroll\"><div class=\"md-code-body\"><pre class=\"md-code-numbers\" aria-hidden=\"true\">1</pre><pre class=\"md-code-highlight\" aria-hidden=\"true\" inert=\"\">print(\"x\")\n</pre><pre class=\"md-code-area\" contenteditable=\"true\" spellcheck=\"false\" role=\"textbox\" aria-label=\"代码正文\" aria-multiline=\"true\"><code>print(\"x\")</code></pre></div></div></div><p class=\"surface-end\"><br></p>"
+      },
+      "unfinished_code": {
+        "source": "~~~python\nx = 1",
+        "captured": "~~~python\nx = 1",
+        "exact": true,
+        "render_before": "<p>~~~python<br />\nx = 1</p>",
+        "render_after": "<p>~~~python<br />\nx = 1</p>",
+        "dom": "<div data-model-index=\"0\" class=\"md-code has-line-numbers\" contenteditable=\"false\" data-lang=\"python\" data-source=\"x = 1\" data-original-lang=\"python\" data-md=\"~~~python\nx = 1\" style=\"--tab-size: 2;\"><span class=\"md-code-lang\" hidden=\"\">python</span><div class=\"md-code-tools\"><span class=\"md-code-lang-picker\"><input type=\"text\" class=\"md-code-language\" aria-label=\"代码语言\" spellcheck=\"false\" autocomplete=\"off\" placeholder=\"纯文本\" title=\"输入语言（如 c 联想 C/C++/C#），或点击选择\"><div class=\"md-code-lang-list\" hidden=\"\"></div></span><span class=\"md-code-hint\">Tab 缩进 · Ctrl+Enter 退出</span><button type=\"button\" title=\"复制代码正文\">复制</button></div><div class=\"md-code-scroll\"><div class=\"md-code-body\"><pre class=\"md-code-numbers\" aria-hidden=\"true\">1</pre><pre class=\"md-code-highlight\" aria-hidden=\"true\" inert=\"\">x = 1\n</pre><pre class=\"md-code-area\" contenteditable=\"true\" spellcheck=\"false\" role=\"textbox\" aria-label=\"代码正文\" aria-multiline=\"true\"><code>x = 1</code></pre></div></div></div><p class=\"surface-end\"><br></p>"
+      },
+      "indented_code": {
+        "source": "    print(\"x\")\n    print(\"y\")",
+        "captured": "```\nprint(\"x\")\nprint(\"y\")\n```",
+        "exact": false,
+        "render_before": "<div class=\"codehilite\"><pre><span></span><code>print(\"x\")\nprint(\"y\")\n</code></pre></div>",
+        "render_after": "<div class=\"codehilite\"><pre><span></span><code>print(\"x\")\nprint(\"y\")\n</code></pre></div>",
+        "dom": "<div data-model-index=\"0\"><pre><span></span><code>print(\"x\")\nprint(\"y\")\n</code></pre></div><p class=\"surface-end\"><br></p>"
+      },
+      "math": {
+        "source": "$x^2$\n\n$$\nx^2 + y^2\n$$",
+        "captured": "$x^2$\n\n$$\nx^2 + y^2\n$$",
+        "exact": true,
+        "render_before": "<p>$x^2$</p>\n<p>$$<br />\nx^2 + y^2<br />\n$$</p>",
+        "render_after": "<p>$x^2$</p>\n<p>$$<br />\nx^2 + y^2<br />\n$$</p>",
+        "dom": "<p data-model-index=\"0\"><span class=\"math-inline\" data-tex=\"x^2\" data-rendered=\"1\"><span class=\"katex\"><span class=\"katex-html\" aria-hidden=\"true\"><span class=\"base\"><span class=\"strut\" style=\"height: 0.8141em;\"></span><span class=\"mord\"><span class=\"mord mathnormal\">x</span><span class=\"msupsub\"><span class=\"vlist-t\"><span class=\"vlist-r\"><span class=\"vlist\" style=\"height: 0.8141em;\"><span class=\"\" style=\"top: -3.063em; margin-right: 0.05em;\"><span class=\"pstrut\" style=\"height: 2.7em;\"></span><span class=\"sizing reset-size6 size3 mtight\"><span class=\"mord mtight\">2</span></span></span></span></span></span></span></span></span></span></span></span></p><div data-model-index=\"1\" class=\"md-atom atom-math\" contenteditable=\"false\" data-md=\"$$\nx^2 + y^2\n$$\"><div class=\"math-source\" hidden=\"\">$$\nx^2 + y^2\n$$</div><div class=\"math-render\" data-rendered=\"1\"><span class=\"katex-display\"><span class=\"katex\"><span class=\"katex-html\" aria-hidden=\"true\"><span class=\"base\"><span class=\"strut\" style=\"height: 0.9474em; vertical-align: -0.0833em;\"></span><span class=\"mord\"><span class=\"mord mathnormal\">x</span><span class=\"msupsub\"><span class=\"vlist-t\"><span class=\"vlist-r\"><span class=\"vlist\" style=\"height: 0.8641em;\"><span class=\"\" style=\"top: -3.113em; margin-right: 0.05em;\"><span class=\"pstrut\" style=\"height: 2.7em;\"></span><span class=\"sizing reset-size6 size3 mtight\"><span class=\"mord mtight\">2</span></span></span></span></span></span></span></span><span class=\"mspace\" style=\"margin-right: 0.2222em;\"></span><span class=\"mbin\">+</span><span class=\"mspace\" style=\"margin-right: 0.2222em;\"></span></span><span class=\"base\"><span class=\"strut\" style=\"height: 1.0585em; vertical-align: -0.1944em;\"></span><span class=\"mord\"><span class=\"mord mathnormal\" style=\"margin-right: 0.0359em;\">y</span><span class=\"msupsub\"><span class=\"vlist-t\"><span class=\"vlist-r\"><span class=\"vlist\" style=\"height: 0.8641em;\"><span class=\"\" style=\"top: -3.113em; margin-right: 0.05em;\"><span class=\"pstrut\" style=\"height: 2.7em;\"></span><span class=\"sizing reset-size6 size3 mtight\"><span class=\"mord mtight\">2</span></span></span></span></span></span></span></span></span></span></span></span></div></div><p class=\"surface-end\"><br></p>"
+      },
+      "raw_html": {
+        "source": "<p><mark>highlight</mark> and <sup>2</sup></p>",
+        "captured": "highlight and 2",
+        "exact": false,
+        "render_before": "<p><mark>highlight</mark> and <sup>2</sup></p>",
+        "render_after": "<p>highlight and 2</p>",
+        "dom": "<p data-model-index=\"0\"><mark>highlight</mark> and <sup>2</sup></p><p class=\"surface-end\"><br></p>"
+      },
+      "blockquote": {
+        "source": "> first\n>\n> second",
+        "captured": "> first\n>\n> second",
+        "exact": true,
+        "render_before": "<blockquote>\n<p>first</p>\n<p>second</p>\n</blockquote>",
+        "render_after": "<blockquote>\n<p>first</p>\n<p>second</p>\n</blockquote>",
+        "dom": "<blockquote data-model-index=\"0\">\n<p>first</p>\n<p>second</p>\n</blockquote><p class=\"surface-end\"><br></p>"
+      },
+      "heading_gaps": {
+        "source": "# First\n\n\n\n# Second",
+        "captured": "# First\n\n\n\n# Second",
+        "exact": true,
+        "render_before": "<h1 id=\"first\">First</h1>\n<h1 id=\"second\">Second</h1>",
+        "render_after": "<h1 id=\"first\">First</h1>\n<h1 id=\"second\">Second</h1>",
+        "dom": "<h1 data-model-index=\"0\">First</h1><p><br></p><p><br></p><h1 data-model-index=\"1\">Second</h1><p class=\"surface-end\"><br></p>"
+      },
+      "task_nested": {
+        "source": "- [ ] parent\n    - [x] child\n- [x] sibling",
+        "captured": "- [ ] parent\n    - [x] child\n- [x] sibling",
+        "exact": true,
+        "render_before": "<ul>\n<li class=\"task-list-item\"><input class=\"task-checkbox\" type=\"checkbox\" disabled />parent<ul>\n<li class=\"task-list-item\"><input class=\"task-checkbox\" type=\"checkbox\" disabled checked/>child</li>\n</ul>\n</li>\n<li class=\"task-list-item\"><input class=\"task-checkbox\" type=\"checkbox\" disabled checked/>sibling</li>\n</ul>",
+        "render_after": "<ul>\n<li class=\"task-list-item\"><input class=\"task-checkbox\" type=\"checkbox\" disabled />parent<ul>\n<li class=\"task-list-item\"><input class=\"task-checkbox\" type=\"checkbox\" disabled checked/>child</li>\n</ul>\n</li>\n<li class=\"task-list-item\"><input class=\"task-checkbox\" type=\"checkbox\" disabled checked/>sibling</li>\n</ul>",
+        "dom": "<ul data-model-index=\"0\">\n<li><input class=\"task-checkbox\" type=\"checkbox\" tabindex=\"-1\">parent<ul>\n<li><input class=\"task-checkbox\" type=\"checkbox\" checked=\"\" tabindex=\"-1\">child</li>\n</ul>\n</li>\n<li><input class=\"task-checkbox\" type=\"checkbox\" checked=\"\" tabindex=\"-1\">sibling</li>\n</ul><p class=\"surface-end\"><br></p>"
+      },
+      "toc": {
+        "source": "[toc]\n\n# First\n\n## Second",
+        "captured": "[toc]\n\n# First\n\n## Second",
+        "exact": true,
+        "render_before": "<p>[toc]</p>\n<h1 id=\"first\">First</h1>\n<h2 id=\"second\">Second</h2>",
+        "render_after": "<p>[toc]</p>\n<h1 id=\"first\">First</h1>\n<h2 id=\"second\">Second</h2>",
+        "dom": "<p data-model-index=\"0\">[toc]</p><h1 data-model-index=\"1\">First</h1><h2 data-model-index=\"2\">Second</h2><p class=\"surface-end\"><br></p>"
+      },
+      "frontmatter": {
+        "source": "---\ntitle: 文档\n---\n\n# Heading",
+        "captured": "---\ntitle: 文档\n---\n\n# Heading",
+        "exact": true,
+        "render_before": "<hr />\n<h2 id=\"title\">title: 文档</h2>\n<h1 id=\"heading\">Heading</h1>",
+        "render_after": "<hr />\n<h2 id=\"title\">title: 文档</h2>\n<h1 id=\"heading\">Heading</h1>",
+        "dom": "<div data-model-index=\"0\" class=\"md-atom atom-frontmatter\" contenteditable=\"false\" data-md=\"---\ntitle: 文档\n---\"><div class=\"atom-label\">Front Matter</div><pre>---\ntitle: 文档\n---</pre></div><h1 data-model-index=\"1\">Heading</h1><p class=\"surface-end\"><br></p>"
+      }
+    },
+    "literal_token": {
+      "literal 0": "IndexError: list index out of range",
+      "literal 999 and \\*": "IndexError: list index out of range"
+    },
+    "lists": {
+      "backspace": {
+        "after": "- first\n\nsecond\n\n- third",
+        "undo": "- first\n\nsecond\n\n- third"
+      },
+      "heading": {
+        "after": "- first\n\n## second\n\n- third",
+        "undo": "- first\n\n## second\n\n- third"
+      }
+    },
+    "images": {
+      "test.png": {
+        "src": "file:///C:/Users/wjping19/AppData/Local/Temp/mdnote-audit-w0cwkpch/test.png",
+        "width": 12,
+        "markdown": "![test](test.png)"
+      },
+      "space%20name.png": {
+        "src": "file:///D:/tools/md_tool/mdnote/editor/web/space%20name.png",
+        "width": 0,
+        "markdown": "![test](space%20name.png)"
+      },
+      "%E4%B8%AD%E6%96%87.png": {
+        "src": "file:///D:/tools/md_tool/mdnote/editor/web/%E4%B8%AD%E6%96%87.png",
+        "width": 0,
+        "markdown": "![test](%E4%B8%AD%E6%96%87.png)"
+      },
+      "a&b.png": {
+        "src": "file:///D:/tools/md_tool/mdnote/editor/web/a&b.png",
+        "width": 0,
+        "markdown": "![test](a&b.png)"
+      },
+      "test.png?rev=1": {
+        "src": "file:///D:/tools/md_tool/mdnote/editor/web/test.png?rev=1",
+        "width": 0,
+        "markdown": "![test](test.png?rev=1)"
+      }
+    },
+    "math": 2.0,
+    "mermaid_disabled_svg": 0.0,
+    "outline": "FirstSecond",
+    "save_roundtrip": {
+      "escaped_html": {
+        "ok": true,
+        "disk": "<em>literal</em>"
+      },
+      "reference": {
+        "ok": true,
+        "disk": "[website][ref]\n\n[ref]: https://example.invalid/ \"Title\""
+      },
+      "footnote": {
+        "ok": true,
+        "disk": "A footnote[^n].\n\n[^n]: Footnote body."
+      },
+      "loose_list": {
+        "ok": true,
+        "disk": "- \nfirst paragraph\nsecond paragraph\n- \nnext item"
+      },
+      "link_title": {
+        "ok": true,
+        "disk": "[site](https://example.invalid/)"
+      },
+      "definition_list": {
+        "ok": true,
+        "disk": "\nTerm\nDefinition\n"
+      }
+    },
+    "atom_close": {
+      "guard_calls": 1,
+      "tab_retained": true,
+      "text": "---\ntitle: old\n--- NEW"
+    },
+    "failed_flush_close": {
+      "tab_retained": false,
+      "guard_calls": 0
+    },
+    "themes": {
+      "github-light": "{\"background\":\"rgb(255, 255, 255)\",\"color\":\"rgb(36, 41, 47)\",\"scrollWidth\":1280,\"width\":1280}",
+      "github-dark": "{\"background\":\"rgb(13, 17, 23)\",\"color\":\"rgb(201, 209, 217)\",\"scrollWidth\":600,\"width\":600}"
+    },
+    "performance": [
+      {
+        "paragraphs": 1000,
+        "characters": 78888,
+        "model_ms": 32.91,
+        "surface_ms": 570.52,
+        "roundtrip": true
+      },
+      {
+        "paragraphs": 3000,
+        "characters": 238888,
+        "model_ms": 86.92,
+        "surface_ms": 1812.16,
+        "roundtrip": true
+      },
+      {
+        "paragraphs": 10000,
+        "characters": 798888,
+        "model_ms": 218.15,
+        "surface_ms": 9523.43,
+        "roundtrip": true
+      }
+    ]
+  },
+  "followup": {
+    "outline": {
+      "tag": "H1",
+      "text": "Second",
+      "index": "1"
+    },
+    "list_heading": {
+      "after": "Before\n\nAfter\n\n\n- first\n\n## second\n\n- third",
+      "undo": "Before\n\nAfter\n\n\n- first\n\n## second\n\n- third"
+    },
+    "list_backspace": {
+      "after": "Before\n\nAfter\n\n\n- first\n\nsecond\n\n- third",
+      "undo": "Before\n\nAfter\n\n\n- first\n\nsecond\n\n- third"
+    },
+    "extra_roundtrip": {
+      "valid_multiple_nested": {
+        "source": "- parent\n\n    - first nested\n\n    1. second nested\n\n- sibling",
+        "captured": "- \nparent\n    - first nested\n- \nsibling",
+        "dom": "<ul data-model-index=\"0\">\n<li>\n<p>parent</p>\n<ul>\n<li>first nested</li>\n</ul>\n<ol>\n<li>second nested</li>\n</ol>\n</li>\n<li>\n<p>sibling</p>\n</li>\n</ul><p class=\"surface-end\"><br></p>",
+        "render_before": "<ul>\n<li>\n<p>parent</p>\n<ul>\n<li>first nested</li>\n</ul>\n<ol>\n<li>second nested</li>\n</ol>\n</li>\n<li>\n<p>sibling</p>\n</li>\n</ul>",
+        "render_after": "<ul>\n<li>parent<ul>\n<li>first nested</li>\n</ul>\n</li>\n<li>sibling</li>\n</ul>",
+        "saved": {
+          "ok": true,
+          "disk": "- \nparent\n    - first nested\n- \nsibling"
+        }
+      },
+      "escaped_inline_code": {
+        "source": "Use `\\*literal\\*` here",
+        "captured": "Use `*literal*` here",
+        "dom": "<p data-model-index=\"0\">Use <code><span class=\"md-literal\" data-md=\"\\*\">*</span>literal<span class=\"md-literal\" data-md=\"\\*\">*</span></code> here</p><p class=\"surface-end\"><br></p>",
+        "render_before": "<p>Use <code>\\*literal\\*</code> here</p>",
+        "render_after": "<p>Use <code>*literal*</code> here</p>",
+        "saved": {
+          "ok": true,
+          "disk": "Use `*literal*` here"
+        }
+      },
+      "pipe_table": {
+        "source": "| A | B |\n| --- | --- |\n| a\\|b | c |",
+        "captured": "| A | B |\n| --- | --- |\n| a\\\\|b | c |",
+        "dom": "<table data-model-index=\"0\" title=\"Ctrl+Enter 新增行 · Alt+Enter 新增列 · Tab 下一个单元格\">\n<thead>\n<tr>\n<th>A</th>\n<th>B</th>\n</tr>\n</thead>\n<tbody>\n<tr>\n<td>a<span class=\"md-literal\" data-md=\"\\|\">|</span>b</td>\n<td>c</td>\n</tr>\n</tbody>\n</table><p class=\"surface-end\"><br></p>",
+        "render_before": "<table>\n<thead>\n<tr>\n<th>A</th>\n<th>B</th>\n</tr>\n</thead>\n<tbody>\n<tr>\n<td>a|b</td>\n<td>c</td>\n</tr>\n</tbody>\n</table>",
+        "render_after": "<table>\n<thead>\n<tr>\n<th>A</th>\n<th>B</th>\n</tr>\n</thead>\n<tbody>\n<tr>\n<td>a\\</td>\n<td>b</td>\n</tr>\n</tbody>\n</table>",
+        "saved": {
+          "ok": true,
+          "disk": "| A | B |\n| --- | --- |\n| a\\\\|b | c |"
+        }
+      },
+      "indented_code_backslash": {
+        "source": "    x = \"\\*literal\\*\"",
+        "captured": "```\nx = \"*literal*\"\n```",
+        "dom": "<div data-model-index=\"0\"><pre><span></span><code>x = \"<span class=\"md-literal\" data-md=\"\\*\">*</span>literal<span class=\"md-literal\" data-md=\"\\*\">*</span>\"\n</code></pre></div><p class=\"surface-end\"><br></p>",
+        "render_before": "<div class=\"codehilite\"><pre><span></span><code>x = \"\\*literal\\*\"\n</code></pre></div>",
+        "render_after": "<div class=\"codehilite\"><pre><span></span><code>x = \"*literal*\"\n</code></pre></div>"
+      },
+      "toc_upper": {
+        "source": "[TOC]\n\n# First\n\n## Second",
+        "captured": "\n\n\n\n# First\n\n## Second",
+        "dom": "<div data-model-index=\"0\">\n<ul></ul>\n</div><h1 data-model-index=\"1\">First</h1><h2 data-model-index=\"2\">Second</h2><p class=\"surface-end\"><br></p>",
+        "render_before": "<div class=\"toc\">\n<ul>\n<li><a href=\"#first\">First</a><ul>\n<li><a href=\"#second\">Second</a></li>\n</ul>\n</li>\n</ul>\n</div>\n<h1 id=\"first\">First</h1>\n<h2 id=\"second\">Second</h2>",
+        "render_after": "<h1 id=\"first\">First</h1>\n<h2 id=\"second\">Second</h2>",
+        "saved": {
+          "ok": true,
+          "disk": "\n\n\n\n# First\n\n## Second"
+        }
+      }
+    },
+    "import_save_image": {
+      "ok": true,
+      "disk": "![](assets/space%20name.png)",
+      "width": 0.0,
+      "src": "file:///D:/tools/md_tool/mdnote/editor/web/assets/space%20name.png",
+      "exists": true
+    },
+    "real_failed_flush_close": {
+      "readiness": {
+        "python_app_ready": true,
+        "js_surface_ready": false,
+        "mode": "live"
+      },
+      "null_value": "",
+      "null_type": "str",
+      "model_before_flush": "---\ntitle: old\n---",
+      "model_after_flush": "",
+      "flush_result": true,
+      "tab_retained": false,
+      "guard_calls": 0
+    },
+    "unready_save": {
+      "ok": true,
+      "disk": "",
+      "model": ""
+    }
+  }
+}

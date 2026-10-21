@@ -247,14 +247,21 @@ class InputWorkflowTests(unittest.TestCase):
         with self.window() as (window, svc, folder):
             window.current.set_dirty(True)
             count = window.tabs.count()
-            QTimer.singleShot(0, lambda: self.app.activeModalWidget().reject())
-            window.close_tab(0)
-            self.assertEqual(window.tabs.count(), count)
-            self.assertTrue(window.current.dirty)
-            QTimer.singleShot(0, lambda: self.app.activeModalWidget().reject())
-            window.close()
-            self.assertTrue(window.isVisible())
-            self.assertTrue(window.current.dirty)
+            # The surface flush has its own event loop. Wait for the actual
+            # dialog instead of assuming the next event creates the modal.
+            reject_timer = QTimer(window)
+            reject_timer.timeout.connect(lambda: self.app.activeModalWidget().reject()
+                                         if self.app.activeModalWidget() else None)
+            reject_timer.start(10)
+            try:
+                window.close_tab(0)
+                self.assertEqual(window.tabs.count(), count)
+                self.assertTrue(window.current.dirty)
+                window.close()
+                self.assertTrue(window.isVisible())
+                self.assertTrue(window.current.dirty)
+            finally:
+                reject_timer.stop()
 
     def test_preference_switch_updates_surface(self):
         with self.window() as (window, svc, folder):

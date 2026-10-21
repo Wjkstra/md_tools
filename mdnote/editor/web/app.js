@@ -549,6 +549,16 @@ const App = {
   // ------------------------------------------------ atoms ------------------
 
   onClick(event) {
+    const link = event.target.closest?.("a[href]");
+    if (link) {
+      event.preventDefault();
+      const href = link.getAttribute("href");
+      if (href.startsWith("#")) {
+        try { document.getElementById(decodeURIComponent(href.slice(1)))?.scrollIntoView({block:"start"}); }
+        catch (_) { /* A malformed fragment does not navigate the editor. */ }
+      } else this.bridge.openExternal(href);
+      return;
+    }
     const cell=event.target.closest?.("th,td");
     if(cell) this.lastTableCell=cell;
     const atom = event.target.closest && event.target.closest(".md-atom");
@@ -1035,35 +1045,74 @@ const App = {
   // Split the list around one item, replacing only that item with a
   // paragraph/heading while keeping all sibling items and nesting.
   _convertListItem(li, tagName) {
-    const list = li.closest("ul,ol"), doc = document;
-    const parent = list.parentNode;
-    // Build real (not cloned) replacement nodes using the live items, so the
-    // preceding and following lists keep their original elements.
-    const middle = doc.createElement(tagName);
-    middle.innerHTML = MdInline.format(li.textContent) || "<br>";
-    let beforeList = null, afterList = null;
-    if (li.previousElementSibling) {
-      beforeList = list.cloneNode(false);
-      let n = list.firstElementChild;
-      while (n && n !== li) { beforeList.appendChild(n); n = n.nextElementSibling; }
+    const list = li.parentElement;
+    const items = Array.from(list.children), index = items.indexOf(li);
+    const fragment = document.createElement("div");
+    const appendList = (subset, offset) => {
+      if (!subset.length) return;
+      const copy = list.cloneNode(false);
+      copy.removeAttribute("data-model-index");
+      if (list.tagName === "OL") copy.start = (list.start || 1) + offset;
+      subset.forEach(item => copy.appendChild(item.cloneNode(true)));
+      fragment.appendChild(copy);
+    };
+    appendList(items.slice(0, index), 0);
+    const middle = document.createElement(tagName);
+    // Preserve rich inline content, nested lists and all remaining paragraphs.
+    const content = li.cloneNode(true);
+    content.querySelector(":scope > input.task-checkbox")?.remove();
+    const firstParagraph = content.querySelector(":scope > p");
+    if (firstParagraph) {
+      middle.innerHTML = firstParagraph.innerHTML || "<br>";
+      firstParagraph.remove();
+    } else {
+      while (content.firstChild && !["UL", "OL", "PRE", "BLOCKQUOTE"].includes(content.firstChild.nodeName)) {
+        middle.appendChild(content.firstChild);
+      }
+      if (!middle.childNodes.length) middle.innerHTML = "<br>";
     }
-    if (li.nextElementSibling) {
-      afterList = list.cloneNode(false);
-      let n = li.nextElementSibling;
-      while (n) { afterList.appendChild(n); n = n.nextElementSibling; }
+    const token = "list-edit-" + Math.random().toString(36).slice(2);
+    middle.dataset.listEdit = token;
+    fragment.appendChild(middle);
+    while (content.firstChild) fragment.appendChild(content.firstChild);
+    appendList(items.slice(index + 1), index + 1);
+    // Chromium normalizes a selected nested list by lifting its replacement
+    // out of the parent LI. Replace the complete outer list so the inserted
+    // fragment is valid at its insertion point and nesting stays intact.
+    let root = list;
+    while (root.parentElement.closest("ul,ol")) root = root.parentElement.closest("ul,ol");
+    let replacement = fragment.innerHTML;
+    if (root !== list) {
+      const path = [];
+      for (let node = list; node !== root; node = node.parentElement) {
+        path.unshift(Array.from(node.parentElement.children).indexOf(node));
+      }
+      const copy = root.cloneNode(true);
+      let nested = copy;
+      path.forEach(index => { nested = nested.children[index]; });
+      nested.replaceWith(...Array.from(fragment.childNodes));
+      replacement = copy.outerHTML;
     }
-    // Replace the list with siblings [before?, middle, after?].
-    list.remove();
-    const nodes = [];
-    if (beforeList) nodes.push(beforeList);
-    nodes.push(middle);
-    if (afterList) nodes.push(afterList);
-    nodes.forEach((node) => parent.appendChild(node));
-    // Move caret into the converted block.
-    const range = doc.createRange();
-    range.selectNodeContents(middle); range.collapse(false);
+    document.getElementById("doc").focus();
+    const range = document.createRange();
+    if (!root.previousElementSibling) {
+      // A range beginning in the first list is normalized inside that list
+      // by Chromium. An empty leading paragraph gives the native operation
+      // a prose boundary outside it; undo restores the original list too.
+      const boundary = document.createElement("p");
+      boundary.innerHTML = "<br>";
+      root.before(boundary);
+      range.setStartBefore(boundary); range.setEndAfter(root);
+    } else range.selectNode(root);
     const sel = getSelection(); sel.removeAllRanges(); sel.addRange(range);
-    this.postProcess(doc.getElementById("doc"));
+    // Replace at the original range in one native undo transaction.
+    document.execCommand("insertHTML", false, replacement);
+    const inserted = document.querySelector('[data-list-edit="' + token + '"]');
+    if (inserted) {
+      inserted.removeAttribute("data-list-edit");
+      this.restoreCaret(inserted, tagName === "p" ? 0 : inserted.textContent.length);
+    }
+    this.postProcess(document.getElementById("doc"));
     this.scheduleSync();
   },
 

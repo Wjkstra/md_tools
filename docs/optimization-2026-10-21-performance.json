@@ -1,0 +1,63 @@
+{
+  "baseline": "10fbb28bb5d09ceb0cb08283517fd18a476d16fb",
+  "samples_per_case": 3,
+  "results": [
+    {
+      "paragraphs": 1000,
+      "characters": 78888,
+      "samples": {
+        "baseline_ms": [
+          545.93,
+          530.27,
+          571.79
+        ],
+        "optimized_ms": [
+          317.65,
+          349.47,
+          306.36
+        ]
+      },
+      "baseline_ms": 545.93,
+      "optimized_ms": 317.65,
+      "reduction_percent": 41.8
+    },
+    {
+      "paragraphs": 3000,
+      "characters": 238888,
+      "samples": {
+        "baseline_ms": [
+          1650.56,
+          1665.77,
+          1685.37
+        ],
+        "optimized_ms": [
+          948.35,
+          909.3,
+          1055.9
+        ]
+      },
+      "baseline_ms": 1665.77,
+      "optimized_ms": 948.35,
+      "reduction_percent": 43.1
+    },
+    {
+      "paragraphs": 10000,
+      "characters": 798888,
+      "samples": {
+        "baseline_ms": [
+          5413.94,
+          5641.59,
+          6084.52
+        ],
+        "optimized_ms": [
+          3178.31,
+          3156.44,
+          3302.59
+        ]
+      },
+      "baseline_ms": 5641.59,
+      "optimized_ms": 3178.31,
+      "reduction_percent": 43.7
+    }
+  ]
+}

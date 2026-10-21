@@ -188,7 +188,10 @@ class CodeTableExperienceTests(unittest.TestCase):
 
     def table(self):
         self.load('| A | B |\n| :--- | ---: |\n| one | two |')
+        self.view.activateWindow()
+        self.view.setFocus()
         self.js("App.focusCell(document.querySelectorAll('tbody td')[1])")
+        self.wait(lambda: self.js("document.hasFocus() && document.activeElement.id==='doc'"))
 
     def test_table_ctrl_enter_adds_row_focus_and_alignment_with_undo(self):
         self.table()
@@ -210,6 +213,8 @@ class CodeTableExperienceTests(unittest.TestCase):
         self.assertEqual(self.js("document.querySelector('table').rows[0].cells.length"), 3)
         self.assertEqual(self.js("App.selectionElement().closest('td').cellIndex"), 2)
         self.assertEqual(self.js("App.selectionElement().closest('td').style.textAlign"), 'right')
+        self.wait(lambda: self.js("document.hasFocus() && document.activeElement.id==='doc' && "
+                                 "App.selectionElement().closest('td')?.cellIndex===2"))
         self.type('new')
         self.assertTrue(self.view.flush_surface())
         self.assertIn('| one | two | new |', self.doc.get_text())

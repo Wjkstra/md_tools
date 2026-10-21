@@ -223,7 +223,9 @@ class MainWindow(QMainWindow):
             return
         # Pull debounced/atom edits from the surface before deciding whether
         # the document is dirty, so the very latest input is never dropped.
-        session.flush_pending_edits()
+        if not session.flush_pending_edits():
+            self.alert("编辑页面尚未就绪，请稍后重试关闭。")
+            return
         if not session.dirty or self._discard_guard(session):
             self.tabs.removeTab(index)
             session.autosave_timer.stop()
@@ -480,7 +482,9 @@ class MainWindow(QMainWindow):
         if not session:
             self.new_tab()
             return
-        session.flush_pending_edits()
+        if not session.flush_pending_edits():
+            self.alert("编辑页面尚未就绪，请稍后重试新建。")
+            return
         if session.dirty and not self._discard_guard(session):
             return
         session.file_path = None
@@ -907,7 +911,10 @@ class MainWindow(QMainWindow):
         for i in range(self.tabs.count()):
             session = self.tabs.widget(i)
             if isinstance(session, EditorSession):
-                session.flush_pending_edits()
+                if not session.flush_pending_edits():
+                    self.alert("编辑页面尚未就绪，请稍后重试退出。")
+                    event.ignore()
+                    return
         dirty_sessions = [
             self.tabs.widget(i)
             for i in range(self.tabs.count())

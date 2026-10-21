@@ -33,7 +33,12 @@
   // ------------------------------------------------ inline -----------------
 
   function inline(node) {
-    if (node.nodeType === 3) return node.nodeValue; // text: already entity-decoded
+    if (node.nodeType === 3) return node.nodeValue.replace(/&/g, "&amp;").replace(/</g, "&lt;")
+      // A soft-break continuation can look like a new nested list after it
+      // receives Markdown indentation. Preserve its existing text semantics.
+      .replace(/(^|\n)([ \t]{0,3})([-+*]|#{1,6}|>|\d+[.)])(?=[ \t])/g,
+        (_, newline, spaces, marker) => newline + spaces +
+          (/\d/.test(marker[0]) ? marker.replace(/[.)]$/, "\\$&") : "\\" + marker));
     if (!isElement(node)) return "";
     const tag = tagOf(node);
     switch (tag) {
@@ -48,14 +53,14 @@
       case "a": {
         const href = attr(node, "href");
         return href == null ? inlineChildren(node)
-          : "[" + inlineChildren(node) + "](" + href + ")";
+          : "[" + inlineChildren(node) + "](" + href + linkTitle(node) + ")";
       }
       case "img": {
         // data-md-src preserves the document-relative path even though the
         // live preview rewrites src to a file:// URL.
         const src = attr(node, "data-md-src") || attr(node, "src") || "";
         const alt = attr(node, "alt") || "";
-        return "![" + alt + "](" + src + ")";
+        return "![" + alt + "](" + src + linkTitle(node) + ")";
       }
       case "br":
         return "\n";
@@ -84,23 +89,22 @@
     }
   }
 
+  function linkTitle(node) {
+    const title = attr(node, "title");
+    return title == null ? "" : ' "' + title.replace(/&/g, "&amp;")
+      .replace(/"/g, "&quot;").replace(/</g, "&lt;") + '"';
+  }
+
   function inlineChildren(node) {
     const nodes = children(node);
-    let out = "";
-    nodes.forEach(function (child, i) {
-      let piece = inline(child);
-      // The Markdown engine emits "<br />\n" where the newline is only source
-      // formatting (the <br> already is the break). Drop that one newline so a
-      // soft line break is not serialized as two.
-      if (tagOf(child) === "br" && i + 1 < nodes.length) {
-        const next = nodes[i + 1];
-        if (next.nodeType === 3 && next.nodeValue.charAt(0) === "\n") {
-          next.nodeValue = next.nodeValue.replace(/^\n/, "");
-        }
-      }
-      out += piece;
-    });
-    return out;
+    return nodes.map((child, i) => inlineAfter(child, nodes[i - 1])).join("");
+  }
+
+  function inlineAfter(node, previous) {
+    const text = inline(node);
+    // <br />\n contains one visible break. Do not mutate the live text node
+    // while serializing; doing so also breaks the browser's undo history.
+    return node.nodeType === 3 && tagOf(previous) === "br" ? text.replace(/^\n/, "") : text;
   }
 
   // Serialize inline code with a fence long enough to contain any
@@ -123,25 +127,6 @@
 
   // ------------------------------------------------ lists ------------------
 
-  function listItemInline(li) {
-    // Inline content excludes nested lists (handled separately).
-    const parts = children(li)
-      .filter(function (child) {
-        if (!isElement(child)) return true;
-        return child.tagName.toLowerCase() !== "ul"
-          && child.tagName.toLowerCase() !== "ol";
-      })
-      .map(inline);
-    return parts.join("").replace(/\s+$/, "");
-  }
-
-  function nestedList(li) {
-    return elementChildren(li).find(function (child) {
-      const t = child.tagName.toLowerCase();
-      return t === "ul" || t === "ol";
-    }) || null;
-  }
-
   function isTaskItem(li) {
     const first = elementChildren(li)[0];
     return first && first.tagName.toLowerCase() === "input"
@@ -160,27 +145,31 @@
     const startAttr = ordered ? parseInt(attr(list, "start"), 10) : NaN;
     const start = ordered && Number.isFinite(startAttr) && startAttr >= 1
       ? startAttr : 1;
-    const lines = [];
+    const items = [];
+    const loose = elementChildren(list).some(li => elementChildren(li).some(c => tagOf(c) === "p"));
     elementChildren(list).forEach(function (li, index) {
       if (tagOf(li) !== "li") return;
-      let head;
-      if (isTaskItem(li)) {
-        head = "- [" + (taskChecked(li) ? "x" : " ") + "] " + listItemInline(li);
-      } else if (ordered) {
-        head = (start + index) + ". " + listItemInline(li);
-      } else {
-        head = "- " + listItemInline(li);
-      }
-      lines.push(head);
-      const nested = nestedList(li);
-      if (nested) {
-        renderList(nested).forEach(function (line) {
-          // Python-Markdown requires 4 spaces to keep nested list hierarchy.
-          lines.push(line.replace(/^/gm, "    "));
-        });
-      }
+      const marker = isTaskItem(li) ? "- [" + (taskChecked(li) ? "x" : " ") + "] "
+        : ordered ? (start + index) + ". " : "- ";
+      let body = "", pending = "";
+      const flushInline = () => {
+        if (pending.trim()) body += (body ? "\n\n" : "") + pending.trim();
+        pending = "";
+      };
+      const nodes = children(li);
+      nodes.forEach((child, i) => {
+        const tag = tagOf(child);
+        if (["p", "div", "ul", "ol", "pre", "blockquote", "h1", "h2", "h3", "table"].includes(tag)) {
+          flushInline();
+          const nested = tag === "ul" || tag === "ol";
+          body += (body ? (nested && !loose ? "\n" : "\n\n") : "") + block(child);
+        } else pending += inlineAfter(child, nodes[i - 1]);
+      });
+      flushInline();
+      const lines = body.split("\n");
+      items.push(marker + (lines.shift() || "") + lines.map(line => "\n" + (line ? "    " + line : "")).join(""));
     });
-    return lines;
+    return items.join(loose ? "\n\n" : "\n").split("\n");
   }
 
   // ------------------------------------------------ code -------------------
@@ -229,7 +218,10 @@
   }
 
   function cellText(cell) {
-    const text = inlineChildren(cell).trim().replace(/\|/g, "\\|").replace(/\n/g, "<br>");
+    // Only add a table escape when the pipe is not already escaped. Escapes
+    // carried by md-literal spans have already been serialized once.
+    const text = inlineChildren(cell).trim().replace(/(\\*)\|/g,
+      (match, slashes) => slashes + (slashes.length % 2 ? "" : "\\") + "|").replace(/\n/g, "<br>");
     return text === "" ? " " : text;
   }
 

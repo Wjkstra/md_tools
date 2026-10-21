@@ -17,7 +17,8 @@ can restore its language (Pygments would otherwise drop it).
 
 import html as _html
 import re
-from pathlib import Path
+from uuid import uuid4
+from .html_service import local_image_path
 
 import nh3
 
@@ -25,9 +26,12 @@ from .markdown_engine import markdown_engine
 from ..editor.block_model import build_model
 
 # Surface sanitizer: same baseline nh3 rules, plus task checkboxes.
-_SURFACE_TAGS = set(nh3.ALLOWED_TAGS) | {"input"}
+_SURFACE_TAGS = set(nh3.ALLOWED_TAGS) | {"input", "mark", "sup", "sub"}
 _SURFACE_ATTRIBUTES = dict(nh3.ALLOWED_ATTRIBUTES)
 _SURFACE_ATTRIBUTES["input"] = {"class", "checked", "disabled"}
+_SURFACE_ATTRIBUTES["span"] = set(_SURFACE_ATTRIBUTES.get("span", set())) | {"class"}
+for _tag in ("a", "img"):
+    _SURFACE_ATTRIBUTES[_tag] = set(_SURFACE_ATTRIBUTES.get(_tag, set())) | {"title"}
 # Structural attributes we add ourselves; safe because this is our own surface.
 _EXTRA_GLOBAL_ATTRS = {"contenteditable", "data-md", "data-lang"}
 _SURFACE_ATTRIBUTES["*"] = (
@@ -58,25 +62,29 @@ def _atom(atom_class: str, source_md: str, inner: str) -> str:
 
 
 def _render_editable(raw: str) -> str:
-    # Preserve backslash escapes across the render round trip: swap
-    # "\X" for private-use placeholders before markdown, then turn the
-    # surviving placeholders into md-literal spans that html_to_md restores.
-    kept: list[str] = []
+    return _clean(markdown_engine().render(raw, surface=True))
 
-    def keep(match: "re.Match") -> str:
-        kept.append(match.group(1))
-        return f"{len(kept) - 1}"
 
-    tokened = re.sub(r"\\([\\`*_{}\[\]()#+\-.!<>~|$])", keep, raw)
-    html = _clean(markdown_engine().render(tokened))
+def _render_editable_batch(blocks) -> dict[int, str]:
+    """Parse/sanitize bounded batches instead of resetting both per paragraph.
 
-    def restore(match: "re.Match") -> str:
-        index = int(match.group(1))
-        char = kept[index]
-        return (f'<span class="md-literal" data-md="\\{_html.escape(char, quote=True)}">'
-                f"{_html.escape(char)}</span>")
-
-    return re.sub(r"(\d+)", restore, html)
+    A trusted HTML separator prevents adjacent lists from being merged. Its
+    random token is absent from the input and is removed before page delivery.
+    """
+    result = {}
+    for start in range(0, len(blocks), 128):
+        batch = blocks[start:start + 128]
+        token = uuid4().hex
+        while any(token in block.raw for _, block in batch):
+            token = uuid4().hex
+        separator = f'<hr data-md="{token}">'
+        raw = ("\n\n" + separator + "\n\n").join(block.raw for _, block in batch)
+        rendered = _render_editable(raw).split(separator)
+        if len(rendered) != len(batch):
+            # An extension may consume HTML separators; fall back losslessly.
+            rendered = [_render_editable(block.raw) for _, block in batch]
+        result.update((index, html.strip()) for (index, _), html in zip(batch, rendered))
+    return result
 
 
 def fenced_body(raw: str) -> str:
@@ -201,21 +209,17 @@ def _resolve_relative_images(html: str, doc_base: str | None) -> str:
     if not doc_base:
         return html
 
-    def _to_file_uri(path: "Path") -> str:
-        from urllib.parse import quote
-        return Path(path).resolve().as_uri()
-
     def replace(match: "re.Match") -> str:
         prefix, quote, src, suffix = match.groups()
-        lowered = src.lower()
-        if (lowered.startswith(("http://", "https://", "file://", "data:"))
-                or src.startswith(("#", "/"))):
+        source = _html.unescape(src)
+        try:
+            candidate = local_image_path(src, doc_base)
+            if candidate is None or not candidate.is_file():
+                return match.group(0)
+            uri = candidate.as_uri()
+        except (OSError, ValueError):
             return match.group(0)
-        candidate = Path(doc_base) / src
-        if not candidate.exists():
-            return match.group(0)
-        uri = Path(candidate).resolve().as_uri()
-        esc = _html.escape(src, quote=True)
+        esc = _html.escape(source, quote=True)
         return (f'{prefix}{quote}{uri}{quote}{suffix} '
                 f'data-md-src="{esc}"')
 
@@ -233,6 +237,40 @@ def surface_html(text: str, doc_base: str | None = None) -> str:
     model = build_model(text)
     parts: list[str] = []
     blocks = model.blocks
+    definitions = "\n\n".join(block.raw for block in blocks
+                                  if _definition_block(block) is not None)
+    rendered_special = {}
+    toc = None
+    heading_ids = []
+    if any(block.type == "toc" for block in blocks):
+        # All headings share one parser context, including duplicate slugs.
+        engine = markdown_engine()
+        engine.render("\n\n".join(block.raw for block in blocks if block.type == "heading"))
+        toc = _clean(engine._md.toc)
+
+        def collect(tokens):
+            for token in tokens:
+                heading_ids.append(token["id"])
+                collect(token["children"])
+        collect(engine._md.toc_tokens)
+    ordinary = []
+    for i, block in enumerate(blocks):
+        if block.trailing or block.type in {"frontmatter", "code", "math"}:
+            continue
+        if _definition_block(block) is not None:
+            continue
+        if block.type == "toc":
+            rendered_special[i] = _atom("atom-toc", block.raw, toc or "")
+        elif block.type == "html" or re.search(r"^\s*:\s+", block.raw, re.M):
+            # These HTML structures have no complete reverse serializer yet.
+            rendered_special[i] = _atom("atom-structure", block.raw, _render_editable(block.raw))
+        elif definitions and re.search(r"\[[^\]\n]+\]", block.raw):
+            rendered_special[i] = _atom("atom-reference", block.raw,
+                                         _render_editable(block.raw + "\n\n" + definitions))
+        else:
+            ordinary.append((i, block))
+    rendered = _render_editable_batch(ordinary)
+    heading_index = 0
     gap_blank = '<p><br></p>'
     for i, block in enumerate(blocks):
         if block.trailing:
@@ -242,7 +280,16 @@ def surface_html(text: str, doc_base: str | None = None) -> str:
             parts.append(gap_blank * extra)
             parts.append('<p class="surface-end"><br></p>')
             continue
-        parts.append(_tag_model_index(_render_block(block), i))
+        markup = rendered_special.get(i, rendered.get(i))
+        if markup is None:
+            markup = _render_block(block)
+        if block.type == "heading" and toc is not None:
+            if heading_index < len(heading_ids):
+                markup = re.sub(r'\s+id="[^"]*"', "", markup, count=1)
+                markup = re.sub(r"^(<h[1-6])", lambda m: m.group(1) +
+                                f' id="{_html.escape(heading_ids[heading_index], quote=True)}"', markup)
+            heading_index += 1
+        parts.append(_tag_model_index(markup, i))
         # Blank paragraphs between this block and the next.
         if i + 1 < len(blocks):
             gap = model.gaps[i]

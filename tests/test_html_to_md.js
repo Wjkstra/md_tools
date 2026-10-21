@@ -207,3 +207,36 @@ test("empty table cells remain empty and literal pipes are escaped", () => {
     h("tbody",{},h("tr",{},h("td",{},h("br"))),h("tr",{},h("td",{},"one | two"))));
   assert.equal(md(root(table)), "| A |\n| --- |\n|   |\n| one \\| two |");
 });
+
+test("decoded entities retain text semantics while code remains literal", () => {
+  assert.equal(md(root(h("p", {}, "<em>literal</em> &copy;"))),
+    "&lt;em>literal&lt;/em> &amp;copy;");
+  assert.equal(md(root(h("p", {}, h("code", {}, "<em>&copy;\\*")))), "`<em>&copy;\\*`");
+});
+
+test("table literal spans do not double escape a pipe", () => {
+  const table = h("table", {}, h("thead", {}, h("tr", {}, h("th", {}, "A"), h("th", {}, "B"))),
+    h("tbody", {}, h("tr", {}, h("td", {}, "a", h("span", {class:"md-literal", "data-md":"\\|"}, "|"), "b"),
+      h("td", {}, "c"))));
+  assert.equal(md(root(table)), "| A | B |\n| --- | --- |\n| a\\|b | c |");
+});
+
+test("loose list keeps ordered child lists and continuation paragraphs", () => {
+  const list = h("ul", {}, h("li", {}, h("p", {}, "parent"),
+    h("ul", {}, h("li", {}, "first nested")),
+    h("ol", {}, h("li", {}, "second nested")), h("p", {}, "continuation")),
+    h("li", {}, h("p", {}, "sibling")));
+  assert.equal(md(root(list)), "- parent\n\n    - first nested\n\n    1. second nested\n\n    continuation\n\n- sibling");
+});
+
+test("link and image titles survive serialization", () => {
+  assert.equal(md(root(h("p", {}, h("a", {href:"https://x.io", title:'A "title"'}, "site")))),
+    '[site](https://x.io "A &quot;title&quot;")');
+  assert.equal(md(root(h("p", {}, h("img", {src:"a.png", title:"Helpful", alt:"image"})))),
+    '![image](a.png "Helpful")');
+});
+
+test("a soft-break list marker stays text inside the current item", () => {
+  const list = h("ol", {}, h("li", {}, "body", h("br"), "\n- literal marker"));
+  assert.equal(md(root(list)), "1. body\n    \\- literal marker");
+});
