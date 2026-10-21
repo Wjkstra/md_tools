@@ -1,6 +1,6 @@
 {
-  "version": "0.3.4",
-  "notes": "本次更新内容：\n\n- 修复关闭标签/退出窗口可能丢失未同步输入的问题（含公式、Mermaid 等块的编辑）\n- 修复列表项转正文或标题时误删其它列表项的问题\n- 修复跨文档引用定义与脚注在保存时丢失的问题\n- 保留有序列表起始编号与嵌套层级\n- 块级数学公式使用 KaTeX 渲染；实时模式相对图片按文档目录正常显示\n- 修复大纲在含空行文档中跳错位置、深色主题正文白底、Mermaid 开关不生效",
-  "url": "https://github.com/Wjkstra/md_tools/releases/download/v0.3.4/MdNote-Setup-0.3.4.exe",
-  "sha256": "127aa36f8d9f48c518b00b015dac811310cb3c7646091c4547fd43b3de5302f4"
+  "version": "0.3.5",
+  "notes": "本次更新内容：\n\n- 实时模式支持行内数学公式（$...$），块公式用 KaTeX 渲染\n- 修复反斜杠转义在实时编辑中丢失（literal \\* 不再变成斜体）\n- 修复含反引号的行内代码分隔符（双反引号）被破坏\n- 长文档代码块改为进入视口时才语法高亮，大幅降低打开/渲染耗时\n- 实时模式相对图片按文档目录显示、大纲空行定位、公式与 Mermaid 等延续 0.3.4 修复",
+  "url": "https://github.com/Wjkstra/md_tools/releases/download/v0.3.5/MdNote-Setup-0.3.5.exe",
+  "sha256": "be24e7607aaacfff288b17641bf6089f62ae93c0abb79bc00dbf822e260c8de7"
 }
