@@ -1,6 +1,6 @@
 {
-  "version": "0.3.5",
-  "notes": "本次更新内容：\n\n- 实时模式支持行内数学公式（$...$），块公式用 KaTeX 渲染\n- 修复反斜杠转义在实时编辑中丢失（literal \\* 不再变成斜体）\n- 修复含反引号的行内代码分隔符（双反引号）被破坏\n- 长文档代码块改为进入视口时才语法高亮，大幅降低打开/渲染耗时\n- 实时模式相对图片按文档目录显示、大纲空行定位、公式与 Mermaid 等延续 0.3.4 修复",
-  "url": "https://github.com/Wjkstra/md_tools/releases/download/v0.3.5/MdNote-Setup-0.3.5.exe",
-  "sha256": "be24e7607aaacfff288b17641bf6089f62ae93c0abb79bc00dbf822e260c8de7"
+  "version": "0.3.6",
+  "notes": "本次更新内容：\n\n- 修复浅色主题编辑区背景发黑\n- 修复页面未就绪时关闭标签可能清空文件\n- 提升复杂列表、列表转标题/正文的保真并支持撤销重做，保留有序列表起始编号\n- 修复代码反斜杠、表格竖线重复转义、文字实体（&、<）被当成 HTML 的问题\n- 支持 [toc] 目录、定义列表与原始 HTML 源码保留\n- 修复图片本地路径（空格、中文、查询参数）与跨块引用/脚注\n- 长文档分批渲染，HTML 生成耗时下降约 43%",
+  "url": "https://github.com/Wjkstra/md_tools/releases/download/v0.3.6/MdNote-Setup-0.3.6.exe",
+  "sha256": "efea4849e16f5f6aea03d78258e6612dc89338901a85337f50c840dc1f4fad5d"
 }
