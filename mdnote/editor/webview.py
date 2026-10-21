@@ -249,6 +249,7 @@ class WebPreview(QWebEngineView):
         self.page().runJavaScript(
             "document.body.classList.toggle('focus-mode', "
             f"{'true' if s.focus_mode else 'false'});"
+            f"document.documentElement.setAttribute('data-theme', {json.dumps(theme_id)});"
             f"document.body.setAttribute('data-theme', {json.dumps(theme_id)});"
             f"window.__typewriter = {'true' if s.typewriter_mode else 'false'};"
             f"window.__autoBracket = {'true' if s.auto_bracket else 'false'};"

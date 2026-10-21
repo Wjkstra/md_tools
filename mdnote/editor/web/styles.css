@@ -18,10 +18,11 @@ body[data-theme="light"] {
 html, body {
   margin: 0;
   padding: 0;
-  /* Transparent so the native QWebEngine background (set per theme before the
-     first frame) shows through until data-theme applies; both use the same
-     color, so dark themes never flash white and startup never flashes black. */
-  background: transparent;
+  /* CSS owns the background: the default (no data-theme yet) is the light
+     theme's white, so a fresh frame never shows Chromium's black default.
+     Per-theme backgrounds below override this. The native QWebEngine
+     background matches the theme only as a pre-first-paint fallback. */
+  background: var(--bg, #ffffff);
   color: var(--text);
   font-size: 16px;
   line-height: 1.7;
@@ -37,6 +38,86 @@ html, body {
 #doc { outline: none; caret-color: var(--accent); }
 
 /* ---------------- 内置主题 ---------------- */
+
+
+/* Mirror theme variables onto <html> so the document element
+   background matches <body> (avoids white edges in dark themes). */
+html[data-theme="light"] {
+  --text: #24292f;
+  --text-secondary: #57606a;
+  --border: #d0d7de;
+  --accent: #0969da;
+  --bg: #ffffff;
+  --bg-secondary: #f6f8fa;
+  --code-bg: rgba(175, 184, 193, 0.2);
+  --quote-bg: rgba(9, 105, 218, 0.06);
+  --codehilite-bg: #f6f8fa;}
+
+html[data-theme="dark"] {
+  --text: #c9d1d9;
+  --text-secondary: #8b949e;
+  --border: #30363d;
+  --accent: #58a6ff;
+  --bg: #0d1117;
+  --bg-secondary: #161b22;
+  --code-bg: rgba(110, 118, 129, 0.25);
+  --quote-bg: rgba(88, 166, 255, 0.08);
+  --codehilite-bg: #161b22;}
+
+html[data-theme="solarized"] {
+  --text: #586e75;
+  --text-secondary: #839496;
+  --border: #c9d6d3;
+  --accent: #268bd2;
+  --bg: #fdf6e3;
+  --bg-secondary: #eee8d5;
+  --code-bg: rgba(147, 161, 161, 0.25);
+  --quote-bg: rgba(38, 139, 210, 0.08);
+  --codehilite-bg: #eee8d5;}
+
+html[data-theme="sepia"] {
+  --text: #5b4636;
+  --text-secondary: #8a7663;
+  --border: #e0d3c0;
+  --accent: #9c6630;
+  --bg: #f5ecd9;
+  --bg-secondary: #ecdfc5;
+  --code-bg: rgba(138, 118, 99, 0.2);
+  --quote-bg: rgba(156, 102, 48, 0.08);
+  --codehilite-bg: #ecdfc5;}
+
+html[data-theme="night"] {
+  --text: #c4c9d2;
+  --text-secondary: #7d8590;
+  --border: #2b3038;
+  --accent: #7aa2f7;
+  --bg: #000000;
+  --bg-secondary: #12141a;
+  --code-bg: rgba(125, 133, 144, 0.22);
+  --quote-bg: rgba(122, 162, 247, 0.08);
+  --codehilite-bg: #12141a;}
+
+html[data-theme="monokai"] {
+  --text: #f8f8f2;
+  --text-secondary: #a6a297;
+  --border: #41433c;
+  --accent: #a6e22e;
+  --bg: #272822;
+  --bg-secondary: #32332c;
+  --code-bg: rgba(166, 162, 151, 0.22);
+  --quote-bg: rgba(166, 226, 46, 0.08);
+  --codehilite-bg: #32332c;}
+
+html[data-theme="dracula"] {
+  --text: #f8f8f2;
+  --text-secondary: #a4acc4;
+  --border: #44475a;
+  --accent: #bd93f9;
+  --bg: #282a36;
+  --bg-secondary: #343746;
+  --code-bg: rgba(164, 172, 196, 0.22);
+  --quote-bg: rgba(189, 147, 249, 0.09);
+  --codehilite-bg: #343746;}
 
 /* 暗色（深蓝灰） */
 body[data-theme="dark"] {
