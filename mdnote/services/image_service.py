@@ -35,7 +35,9 @@ def _normalize_ext(ext: str) -> str:
 def _reference(target: Path, base: Path, path_type: str = "relative") -> str:
     if path_type == "absolute":
         return target.as_uri()
-    return quote(Path(os.path.relpath(target, base)).as_posix(), safe="/:")
+    # Balanced parentheses are legal (and common) in Markdown destinations;
+    # quoting them would turn "a(b).png" into "a%28b%29.png".
+    return quote(Path(os.path.relpath(target, base)).as_posix(), safe="/:()")
 
 
 def _write_unique(target: Path, payload: bytes | None = None, source: Path | None = None) -> Path:
@@ -116,44 +118,122 @@ class PreparedImageSave:
         self.created_paths.clear()
 
 
-# Preserve titles/alt text while replacing only the image destination token.
-_INLINE_IMAGE_RE = re.compile(r'(!\[(?:\\.|[^\]\\])*\]\(\s*)(<[^>\n]*>|(?:\\.|[^\s)])+)', re.MULTILINE)
-_IMAGE_REF_RE = re.compile(r'!\[([^\]\n]*)\](?:\[([^\]\n]*)\])?')
-_REF_DEFINITION_RE = re.compile(r'^(\s{0,3}\[([^\]\n]+)\]:\s*)(<[^>\n]*>|\S+)', re.MULTILINE)
+_IMAGE_REF_RE = re.compile(r"!\[([^\]\n]*)\](?:\[([^\]\n]*)\])?")
+_REF_DEFINITION_RE = re.compile(r"^(\s{0,3}\[([^\]\n]+)\]:\s*)(<[^>\n]*>|\S+)", re.MULTILINE)
 _HTML_IMAGE_RE = re.compile(r'(<img\b[^>]*?\bsrc=)(["\'])(.*?)\2', re.IGNORECASE)
 
+_FENCE_LINE_RE = re.compile(r"^ {0,3}(`{3,}|~{3,})(.*)$")
+_INDENTED_LINE_RE = re.compile(r"^(?: {4}|\t)")
+_LIST_MARKER_LINE_RE = re.compile(r"^\s{0,3}(?:[-+*]|\d{1,9}[.)])(?:\s|$)")
+_INLINE_CODE_RE = re.compile(r"(`+)([\s\S]*?)\1")
 
 
-def _prose_segments(text: str) -> list[tuple[bool, str]]:
-    """Protect fenced/inline code examples from image-path rewriting."""
-    protected = []
-    offset = 0
-    fence_start = None
-    fence_character = ""
-    fence_length = 0
-    for line in text.splitlines(keepends=True):
-        marker = re.match(r"^ {0,3}(" + chr(96) + r"{3,}|~{3,})(.*)", line.rstrip("\r\n"))
-        if marker:
-            token, rest = marker.groups()
-            if fence_start is None:
-                fence_start, fence_character, fence_length = offset, token[0], len(token)
-            elif token[0] == fence_character and len(token) >= fence_length and not rest.strip():
-                protected.append((fence_start, offset + len(line)))
-                fence_start = None
-        offset += len(line)
-    if fence_start is not None:
-        protected.append((fence_start, len(text)))
-    for match in re.finditer("(" + chr(96) + r"+)([\s\S]*?)\1", text):
-        protected.append((match.start(), match.end()))
+def _merge_regions(regions):
     merged = []
-    for start, end in sorted(protected):
+    for start, end in sorted(regions):
         if merged and start <= merged[-1][1]:
             merged[-1] = (merged[-1][0], max(end, merged[-1][1]))
         else:
             merged.append((start, end))
+    return merged
+
+
+def _line_is_blank(line: str) -> bool:
+    return line.strip(" \t\r\n") == ""
+
+
+def _line_indent(line: str) -> int:
+    stripped = line.lstrip(" ")
+    return len(line) - len(stripped)
+
+
+def _code_indent_threshold(lines, i) -> int:
+    """Indentation a code line needs at this position.
+
+    Four spaces at document level; inside a list item an indented code block
+    needs a blank line and eight (or deeper) spaces, otherwise the line is
+    just lazy list continuation prose.
+    """
+    j = i - 1
+    while j >= 0 and _line_is_blank(lines[j]):
+        j -= 1
+    marker = lines[j] if j >= 0 else ""
+    match = _LIST_MARKER_LINE_RE.match(marker)
+    if match:
+        return (max(0, _line_indent(marker)) // 4) * 4 + 8
+    return 4
+
+
+def _code_regions(text: str) -> list[tuple[int, int]]:
+    """Character spans of fenced, indented and inline code.
+
+    Indented code starts after a blank line (document start counts) at the
+    indentation required for the current list context, and keeps interior
+    blank lines only when another indented line follows. Over-detection only
+    skips path rewriting, so erring towards protection is safe.
+    """
+    regions: list[tuple[int, int]] = []
+    fence_start = None
+    fence_character = ""
+    fence_length = 0
+    indented_start = None
+    indent_threshold = 4
+    offset = 0
+    prev_blank = True
+    lines = text.splitlines(keepends=True)
+    for i, line in enumerate(lines):
+        body = line.rstrip("\r\n")
+        marker = _FENCE_LINE_RE.match(body)
+        if marker:
+            token, rest = marker.group(1), marker.group(2)
+            if fence_start is None:
+                fence_start = offset
+                fence_character, fence_length = token[0], len(token)
+            elif token[0] == fence_character and len(token) >= fence_length and not rest.strip():
+                regions.append((fence_start, offset + len(line)))
+                fence_start = None
+        elif fence_start is None:
+            indented = bool(_INDENTED_LINE_RE.match(line)) and not _line_is_blank(line)
+            if indented and indented_start is not None:
+                if _line_indent(line) < indent_threshold:
+                    regions.append((indented_start, offset))
+                    indented_start = None
+            elif indented and prev_blank:
+                indent_threshold = _code_indent_threshold(lines, i)
+                if _line_indent(line) >= indent_threshold:
+                    indented_start = offset
+            elif indented_start is not None:
+                if _line_is_blank(line):
+                    k = i + 1
+                    while k < len(lines) and _line_is_blank(lines[k]):
+                        k += 1
+                    follows = (k < len(lines)
+                               and bool(_INDENTED_LINE_RE.match(lines[k]))
+                               and _line_indent(lines[k]) >= indent_threshold
+                               and not _line_is_blank(lines[k]))
+                    if not follows:
+                        regions.append((indented_start, offset))
+                        indented_start = None
+                else:
+                    regions.append((indented_start, offset))
+                    indented_start = None
+        offset += len(line)
+        prev_blank = _line_is_blank(line)
+    if fence_start is not None:
+        regions.append((fence_start, len(text)))
+    if indented_start is not None:
+        regions.append((indented_start, len(text)))
+    for match in _INLINE_CODE_RE.finditer(text):
+        regions.append((match.start(), match.end()))
+    return _merge_regions(regions)
+
+
+def _prose_segments(text: str) -> list[tuple[bool, str]]:
+    """Protect fenced/indented/inline code examples from image-path rewriting."""
+    protected = _code_regions(text)
     segments = []
     offset = 0
-    for start, end in merged:
+    for start, end in protected:
         if start > offset:
             segments.append((True, text[offset:start]))
         segments.append((False, text[start:end]))
@@ -163,13 +243,137 @@ def _prose_segments(text: str) -> list[tuple[bool, str]]:
     return segments
 
 
+def _unescaped_at(text: str, pos: int) -> bool:
+    """True when the character at pos is not escaped by a backslash run."""
+    slashes = 0
+    p = pos - 1
+    while p >= 0 and text[p] == "\\":
+        slashes += 1
+        p -= 1
+    return slashes % 2 == 0
+
+
+def _scan_bracket(text: str, open_pos: int, open_ch: str, close_ch: str):
+    """Return the index just after the matching close bracket, or None."""
+    depth = 0
+    p = open_pos
+    while p < len(text):
+        ch = text[p]
+        if ch == "\\":
+            p += 2
+            continue
+        if ch == open_ch:
+            depth += 1
+        elif ch == close_ch:
+            depth -= 1
+            if depth == 0:
+                return p + 1
+        p += 1
+    return None
+
+
+def _bare_destination(text: str, p: int):
+    """Parse an image/link destination starting at p (right after '(').
+
+    Angle brackets, backslash escapes and balanced parentheses are honoured,
+    so a path such as ``a(b).png`` is read in full instead of stopping at the
+    first ``)``. Returns ``(start, end_exclusive)`` or None.
+    """
+    if p >= len(text):
+        return None
+    if text[p] == "<":
+        q = p + 1
+        while q < len(text):
+            ch = text[q]
+            if ch == "\\":
+                q += 2
+                continue
+            if ch in "\n\r":
+                return None
+            if ch == ">":
+                return p, q + 1
+            q += 1
+        return None
+    depth = 0
+    q = p
+    while q < len(text):
+        ch = text[q]
+        if ch == "\\":
+            q += 2
+            continue
+        if ch == "(":
+            depth += 1
+        elif ch == ")":
+            if depth == 0:
+                break
+            depth -= 1
+        elif ch in " \t\n\r":
+            break
+        elif ch in "<>":
+            return None
+        q += 1
+    return (p, q) if q > p else None
+
+
+def _inline_image_destinations(text: str):
+    """Yield (start, end) spans of each inline image destination token."""
+    p = 0
+    while True:
+        k = text.find("![", p)
+        if k < 0:
+            return
+        p = k + 2
+        if k > 0 and not _unescaped_at(text, k):
+            continue
+        alt_end = _scan_bracket(text, k + 1, "[", "]")
+        if alt_end is None or alt_end >= len(text) or text[alt_end] != "(":
+            continue
+        q = alt_end + 1
+        while q < len(text) and text[q] in " \t":
+            q += 1
+        if q < len(text) and text[q] in "\n\r":
+            q += 1
+            while q < len(text) and text[q] in " \t":
+                q += 1
+        dest = _bare_destination(text, q)
+        if dest is None:
+            continue
+        ds, de = dest
+        # Skip an optional title and require the enclosing closing paren so
+        # scanning continues after the complete (possibly parenthesised) image.
+        r = de
+        newlines = 0
+        while r < len(text) and text[r] in " \t\n\r":
+            if text[r] in "\n\r":
+                newlines += 1
+                if newlines > 1:
+                    break
+            r += 1
+        if r < len(text) and text[r] in "'\"":
+            quote = text[r]
+            r += 1
+            while r < len(text) and text[r] != quote:
+                if text[r] == "\\":
+                    r += 2
+                    continue
+                r += 1
+            if r < len(text) and text[r] == quote:
+                r += 1
+                while r < len(text) and text[r] in " \t\n\r":
+                    r += 1
+        if r < len(text) and text[r] == ")":
+            yield ds, de
+            p = r + 1
+
+
 def prepare_images_for_save(text: str, old_base: str | None, target_path: str,
                             folder: str = "assets") -> PreparedImageSave:
     """Stage local relative images on first save/Save As; caller commits or rolls back.
 
     No existing image is overwritten. A failed document write can roll back every
     new copied file. Inline Markdown, image reference definitions and HTML images
-    are supported. Remote and absolute image references retain their semantics.
+    are supported; destinations are parsed with full bracket/paren awareness.
+    Remote and absolute image references retain their semantics.
     """
     staged = PreparedImageSave(text)
     if not old_base:
@@ -203,6 +407,16 @@ def prepare_images_for_save(text: str, old_base: str | None, target_path: str,
         reference = references[original]
         return "<" + reference + ">" if angled else reference
 
+    def relocate_inline(segment: str) -> str:
+        pieces = []
+        last = 0
+        for ds, de in _inline_image_destinations(segment):
+            pieces.append(segment[last:ds])
+            pieces.append(relocate(segment[ds:de]))
+            last = de
+        pieces.append(segment[last:])
+        return "".join(pieces)
+
     try:
         segments = _prose_segments(text)
         prose = "\n".join(segment for editable, segment in segments if editable)
@@ -211,7 +425,7 @@ def prepare_images_for_save(text: str, old_base: str | None, target_path: str,
         rewritten = []
         for editable, segment in segments:
             if editable:
-                segment = _INLINE_IMAGE_RE.sub(lambda m: m.group(1) + relocate(m.group(2)), segment)
+                segment = relocate_inline(segment)
                 segment = _REF_DEFINITION_RE.sub(
                     lambda m: m.group(1) + relocate(m.group(3))
                     if " ".join(m.group(2).split()).casefold() in labels else m.group(0), segment)

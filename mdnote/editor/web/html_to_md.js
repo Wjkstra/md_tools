@@ -32,13 +32,70 @@
 
   // ------------------------------------------------ inline -----------------
 
+  // Backslash-escape plain text so it parses back as the SAME plain text.
+  // Text nodes are already-decoded literal content; any Markdown-significant
+  // punctuation they contain is never real formatting (real formatting arrives
+  // as em/strong/code/... elements and is serialized from those elements).
+  function escapeText(value) {
+    let text = value.replace(/&/g, "&amp;").replace(/</g, "&lt;");
+    // A backslash that would act as an escape must itself be escaped.
+    text = text.replace(/\\(?=[\\`*_{}\[\]()#+\-.!~|$<>])/g, "\\\\");
+    text = text.replace(/\*/g, "\\*");
+    text = text.replace(/~/g, "\\~");
+    text = text.replace(/`/g, "\\`");
+    // "_" is inert between word characters (snake_case); escape it only where
+    // a delimiter run could open/close emphasis.
+    text = text.replace(/_+/g, (run, offset, whole) => {
+      const before = whole[offset - 1] || "";
+      const after = whole[offset + run.length] || "";
+      return /\w/.test(before) && /\w/.test(after)
+        ? run : "\\_".repeat(run.length);
+    });
+    text = text.replace(/\[/g, "\\[").replace(/\]/g, "\\]");
+    // A soft-break continuation can look like a new nested list/heading/quote
+    // after it receives Markdown indentation. Preserve its text semantics.
+    text = text.replace(
+      /(^|\n)([ \t]{0,3})([-+]|#{1,6}|>|\d+[.)])(?=[ \t])/g,
+      (_, newline, spaces, marker) => newline + spaces +
+        (/\d/.test(marker[0]) ? marker.replace(/[.)]$/, "\\$&") : "\\" + marker));
+    // A soft-break line that alone looks like a thematic break or a setext
+    // underline would otherwise restructure the block on reparse.
+    text = text.replace(/(^|\n)([ \t]{0,3})(=+|-+)[ \t]*$/g,
+      (_, newline, spaces, run) => newline + spaces + "\\" + run[0] + run.slice(1));
+    text = text.replace(/(^|\n)([ \t]{0,3})([-*_])(?:[ \t]*\3){2,}[ \t]*$/g,
+      (_, newline, spaces, ch) => newline + spaces + "\\" + ch);
+    return text;
+  }
+
+  // Wrap a link/image destination in angle brackets when it would not parse
+  // bare: whitespace, or unbalanced parentheses (CommonMark allows one level
+  // of balanced parens and angle-bracket destinations for everything else).
+  function markdownDestination(url) {
+    if (url == null || url === "") return "";
+    let angle = /\s|<>/.test(url);
+    if (!angle) {
+      let depth = 0;
+      for (const ch of url) {
+        if (ch === "(") depth += 1;
+        else if (ch === ")") {
+          depth -= 1;
+          if (depth < 0) { angle = true; break; }
+        }
+      }
+      if (depth !== 0) angle = true;
+    }
+    if (!angle) return url;
+    return "<" + url.replace(/[<>]/g,
+      (ch) => "%" + ch.charCodeAt(0).toString(16).toUpperCase()) + ">";
+  }
+
+  // Escape image alt text (a plain attribute value, never formatted nodes).
+  function imageAlt(value) {
+    return value.replace(/\\/g, "\\\\").replace(/\[/g, "\\[").replace(/\]/g, "\\]");
+  }
+
   function inline(node) {
-    if (node.nodeType === 3) return node.nodeValue.replace(/&/g, "&amp;").replace(/</g, "&lt;")
-      // A soft-break continuation can look like a new nested list after it
-      // receives Markdown indentation. Preserve its existing text semantics.
-      .replace(/(^|\n)([ \t]{0,3})([-+*]|#{1,6}|>|\d+[.)])(?=[ \t])/g,
-        (_, newline, spaces, marker) => newline + spaces +
-          (/\d/.test(marker[0]) ? marker.replace(/[.)]$/, "\\$&") : "\\" + marker));
+    if (node.nodeType === 3) return escapeText(node.nodeValue);
     if (!isElement(node)) return "";
     const tag = tagOf(node);
     switch (tag) {
@@ -53,14 +110,15 @@
       case "a": {
         const href = attr(node, "href");
         return href == null ? inlineChildren(node)
-          : "[" + inlineChildren(node) + "](" + href + linkTitle(node) + ")";
+          : "[" + inlineChildren(node) + "]("
+            + markdownDestination(href) + linkTitle(node) + ")";
       }
       case "img": {
         // data-md-src preserves the document-relative path even though the
         // live preview rewrites src to a file:// URL.
         const src = attr(node, "data-md-src") || attr(node, "src") || "";
-        const alt = attr(node, "alt") || "";
-        return "![" + alt + "](" + src + linkTitle(node) + ")";
+        return "![" + imageAlt(attr(node, "alt") || "") + "]("
+          + markdownDestination(src) + linkTitle(node) + ")";
       }
       case "br":
         return "\n";
@@ -68,6 +126,14 @@
         // Task checkbox handled by its parent <li>; nothing to emit inline.
         return "";
       }
+      // Inline HTML the sanitizer keeps on purpose: write the tags back so
+      // authored inline markup survives a round trip.
+      case "mark":
+        return "<mark>" + inlineChildren(node) + "</mark>";
+      case "sup":
+        return "<sup>" + inlineChildren(node) + "</sup>";
+      case "sub":
+        return "<sub>" + inlineChildren(node) + "</sub>";
       case "span": {
         const cls = attr(node, "class") || "";
         // Inline math keeps its TeX in data-tex; emit $tex$.
@@ -147,27 +213,53 @@
       ? startAttr : 1;
     const items = [];
     const loose = elementChildren(list).some(li => elementChildren(li).some(c => tagOf(c) === "p"));
+    const BLOCK_TAGS = ["p", "div", "ul", "ol", "pre", "blockquote",
+      "h1", "h2", "h3", "table"];
     elementChildren(list).forEach(function (li, index) {
       if (tagOf(li) !== "li") return;
       const marker = isTaskItem(li) ? "- [" + (taskChecked(li) ? "x" : " ") + "] "
         : ordered ? (start + index) + ". " : "- ";
-      let body = "", pending = "";
+      // Each part carries its own lines plus whether continuation lines need
+      // list indentation: block children do, lazy prose continuations do not
+      // (indenting them changes how Python-Markdown parses the item).
+      const parts = [];
+      let pending = "";
+      let hasBlock = false;
+      const nodes = children(li);
       const flushInline = () => {
-        if (pending.trim()) body += (body ? "\n\n" : "") + pending.trim();
+        if (pending.trim()) {
+          parts.push({ lines: pending.trim().split("\n"), indent: hasBlock, sep: "\n\n" });
+        }
         pending = "";
       };
-      const nodes = children(li);
       nodes.forEach((child, i) => {
         const tag = tagOf(child);
-        if (["p", "div", "ul", "ol", "pre", "blockquote", "h1", "h2", "h3", "table"].includes(tag)) {
+        if (BLOCK_TAGS.includes(tag)) {
           flushInline();
+          hasBlock = true;
           const nested = tag === "ul" || tag === "ol";
-          body += (body ? (nested && !loose ? "\n" : "\n\n") : "") + block(child);
+          parts.push({
+            lines: block(child).split("\n"),
+            indent: true,
+            sep: nested && !loose ? "\n" : "\n\n",
+          });
         } else pending += inlineAfter(child, nodes[i - 1]);
       });
       flushInline();
-      const lines = body.split("\n");
-      items.push(marker + (lines.shift() || "") + lines.map(line => "\n" + (line ? "    " + line : "")).join(""));
+      const out = [];
+      parts.forEach((part, partIndex) => {
+        if (partIndex > 0 && part.sep === "\n\n") out.push("");
+        part.lines.forEach((line, lineIndex) => {
+          const itemFirstLine = partIndex === 0 && lineIndex === 0 && out.length === 0;
+          if (itemFirstLine) {
+            out.push(line); // glued to the marker
+          } else {
+            out.push(part.indent && line ? "    " + line : line);
+          }
+        });
+      });
+      const first = out.shift() || "";
+      items.push(marker + first + out.map(line => "\n" + line).join(""));
     });
     return items.join(loose ? "\n\n" : "\n").split("\n");
   }
@@ -194,10 +286,14 @@
     const code = elementChildren(pre).find(function (child) {
       return tagOf(child) === "code";
     });
+    // These <pre> blocks are rendered indented code (fenced code uses the
+    // persistent .md-code editor). Serialize them as indented code too: that
+    // keeps embedded fence lines literal and survives list/quote nesting
+    // (list indentation adds the remaining columns on continuation lines).
     const body = (code || pre).textContent.replace(/\n$/, "");
-    const lang = attr(pre, "data-lang") || attr(code, "data-lang") || "";
-    const fence = "```";
-    return fence + lang + "\n" + body + "\n" + fence;
+    return body.split("\n").map(function (line) {
+      return line.length ? "    " + line : "";
+    }).join("\n");
   }
 
   // ------------------------------------------------ blockquote -------------
@@ -298,7 +394,12 @@
       case "h1": case "h2": case "h3":
       case "h4": case "h5": case "h6": {
         const level = Number(tag[1]);
-        return "#".repeat(level) + " " + inlineChildren(node);
+        let text = inlineChildren(node);
+        // Authored attr_list id ("# Title {#custom}"), carried separately
+        // from TOC-generated ids (which are dropped by the sanitizer).
+        const authoredId = attr(node, "data-md-attr-id");
+        if (authoredId) text += " {#" + authoredId + "}";
+        return "#".repeat(level) + " " + text;
       }
       case "p": {
         const text = inlineChildren(node);

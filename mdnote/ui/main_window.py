@@ -57,6 +57,9 @@ class MainWindow(QMainWindow):
         self._operation_message = ""
         self._export_jobs = set()
         self._closing = False
+        # Reentrancy guard: flushing the surface spins a short nested event
+        # loop during which another fileChanged signal must not recurse.
+        self._external_check_busy = False
 
         # 自动更新（清单 URL：设置覆盖 > 内置默认）。空白值（空格/换行）等同未配置。
         from .. import __version__
@@ -635,6 +638,23 @@ class MainWindow(QMainWindow):
     def _current_text(self) -> str:
         return self.current.current_text() if self.current else ""
 
+    def _text_for_export(self) -> str | None:
+        """Current text with pending atom/prose input captured first.
+
+        Returns None when the live surface cannot be flushed; the caller
+        must abort the export so a formula being edited is not exported stale.
+        """
+        session = self.current
+        if session is None:
+            return ""
+        if session.mode == "live":
+            if not session.preview.flush_surface():
+                self.alert("编辑页面尚未就绪，导出已取消。")
+                return None
+            return session.doc.get_text()
+        session.flush_source()
+        return session.source.get_text()
+
     def _export_base(self) -> str | None:
         return self.current.doc.doc_base if self.current else None
 
@@ -661,8 +681,11 @@ class MainWindow(QMainWindow):
             return
         path, _ = QFileDialog.getSaveFileName(self, "导出 HTML", "export.html", "HTML (*.html)")
         if path:
+            text = self._text_for_export()
+            if text is None:
+                return
             try:
-                exporter.export_html(path, self._current_text(), doc_base=self._export_base())
+                exporter.export_html(path, text, doc_base=self._export_base())
             except (OSError, ValueError) as exc:
                 self.alert(f"导出失败：{exc}")
             else:
@@ -673,8 +696,11 @@ class MainWindow(QMainWindow):
             return
         path, _ = QFileDialog.getSaveFileName(self, "导出 PDF", "export.pdf", "PDF (*.pdf)")
         if path:
+            text = self._text_for_export()
+            if text is None:
+                return
             try:
-                job = exporter.export_pdf(self._current_text(), path,
+                job = exporter.export_pdf(text, path,
                                           doc_base=self._export_base(), parent=self)
                 self._track_export(job, path)
             except (OSError, ValueError) as exc:
@@ -688,9 +714,12 @@ class MainWindow(QMainWindow):
             self, f"导出 {fmt}", f"export.{ext}", f"{fmt} (*.{ext})"
         )
         if path:
+            text = self._text_for_export()
+            if text is None:
+                return
             try:
                 standalone = exporter.build_standalone_html(
-                    self._current_text(), doc_base=self._export_base()
+                    text, doc_base=self._export_base()
                 )
                 self._track_export(exporter.export_image(standalone, path, fmt, parent=self), path)
             except (OSError, ValueError) as exc:
@@ -707,8 +736,11 @@ class MainWindow(QMainWindow):
             self, f"导出 {fmt.upper()}", f"export.{ext}", f"{fmt.upper()} (*.{ext})"
         )
         if path:
+            text = self._text_for_export()
+            if text is None:
+                return
             try:
-                job = exporter.pandoc_export(self._current_text(), fmt, path,
+                job = exporter.pandoc_export(text, fmt, path,
                                             doc_base=self._export_base(), parent=self)
                 self._track_export(job, path)
             except (OSError, ValueError) as exc:
@@ -833,32 +865,49 @@ class MainWindow(QMainWindow):
         self._arm_watcher()
         if not session:
             return
+        # Reentrant signals delivered while the flush event loop / confirm
+        # dialog is open must not reload on stale dirty state; the outer call
+        # already acts on the disk version it just read.
+        if self._external_check_busy:
+            return
         try:
             disk = Path(path).read_text(encoding="utf-8-sig")
         except (OSError, UnicodeError):
             return
         if disk == session._disk_text:
             return
-        if disk == session.current_text():
+        self._external_check_busy = True
+        try:
+            # Atom (formula/Mermaid/front matter) input and the prose debounce
+            # window are not reflected in session.dirty yet; pull them into the
+            # model first so an external reload can never silently overwrite them.
+            if session is self.current and session.mode == "live":
+                if not session.flush_pending_edits():
+                    # Refuse to clobber input that could not be captured; the
+                    # change is re-checked on next activation/save.
+                    return
+            if disk == session.current_text():
+                session._disk_text = disk
+                session._external_notice = None
+                session.set_dirty(False)
+                return
+            if session is not self.current:
+                return  # Recheck on activation; autosave independently checks its disk version.
+            if session.dirty:
+                if session._external_notice == disk and not force:
+                    return
+                session._external_notice = disk
+                if not self.confirm("文件已被其他程序修改，是否重新载入？（未保存的修改将丢失）"):
+                    # Not acknowledged: a later activation must be able to recheck.
+                    session._external_notice = None
+                    return  # Do not acknowledge a disk version we have chosen not to load.
             session._disk_text = disk
             session._external_notice = None
+            session._autosave_error_token = None
+            session.load_text(disk)
             session.set_dirty(False)
-            return
-        if session is not self.current:
-            return  # Recheck on activation; autosave independently checks its disk version.
-        if session.dirty:
-            if session._external_notice == disk and not force:
-                return
-            session._external_notice = disk
-            if not self.confirm("文件已被其他程序修改，是否重新载入？（未保存的修改将丢失）"):
-                # Not acknowledged: a later activation must be able to recheck.
-                session._external_notice = None
-                return  # Do not acknowledge a disk version we have chosen not to load.
-        session._disk_text = disk
-        session._external_notice = None
-        session._autosave_error_token = None
-        session.load_text(disk)
-        session.set_dirty(False)
+        finally:
+            self._external_check_busy = False
 
     # =========================================================
     #  关闭某个标签 / 整个窗口的守卫

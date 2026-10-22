@@ -17,6 +17,16 @@ const App = {
   activeAtom: null,    // atom element currently in source-edit mode
   syncTimer: null,
 
+  // The atom only counts as active while it is still in the live DOM:
+  // a surface rebuild (save/reload/mode switch) replaces its element, and a
+  // stale detached reference would swallow every later keystroke.
+  editingAtom() {
+    if (this.activeAtom && !this.activeAtom.isConnected) {
+      this.activeAtom = null;
+    }
+    return this.activeAtom;
+  },
+
   // ------------------------------------------------ init -------------------
 
   init(bridge) {
@@ -29,7 +39,7 @@ const App = {
     document.addEventListener("mousedown", (e) => this.onMouseDown(e), true);
     document.addEventListener("selectionchange", () => this.scheduleHint());
     document.addEventListener("paste",event=>{
-      if(this.activeAtom) return;
+      if(this.editingAtom()) return;
       const area=event.target.closest?.(".md-code-area");
       if(area){
         event.preventDefault();
@@ -86,7 +96,7 @@ const App = {
   updateHeadingHint() {
     const el = this.ensureHint();
     const selection = getSelection();
-    if (!selection.rangeCount || this.activeAtom) { el.hidden = true; return; }
+    if (!selection.rangeCount || this.editingAtom()) { el.hidden = true; return; }
     const node = selection.anchorNode;
     const host = node && (node.nodeType === 1 ? node : node.parentElement);
     const heading = host && host.closest ? host.closest("h1,h2,h3,h4,h5,h6") : null;
@@ -136,7 +146,7 @@ const App = {
       }
       return;
     }
-    if (this.activeAtom || !window.__autoBracket ||
+    if (this.editingAtom() || !window.__autoBracket ||
         event.inputType !== "insertText" || !event.data) {
       return;
     }
@@ -184,6 +194,9 @@ const App = {
 
   loadSurface() {
     this.surfaceReady = false;
+    // The rebuild replaces every atom element; any lingering edit reference
+    // pointed at a detached node and would otherwise swallow later input.
+    this.activeAtom = null;
     return Promise.resolve(this.bridge.loadSurfaceHtml())
       .then((raw) => {
         const html = JSON.parse(raw);
@@ -274,7 +287,7 @@ const App = {
   renderMath() {
     if (!window.katex) return;
     document.querySelectorAll(".atom-math").forEach((atom) => {
-      if (this.activeAtom === atom) return; // shown as source while editing
+      if (this.editingAtom() === atom) return; // shown as source while editing
       const render = atom.querySelector(".math-render");
       if (!render || render.dataset.rendered) return;
       const raw = (atom.dataset.md || "").trim();
@@ -316,14 +329,26 @@ const App = {
 
   captureMarkdown() {
     if(this.syncTimer){clearTimeout(this.syncTimer);this.syncTimer=null;}
-    if(this.activeAtom) this.activeAtom.dataset.md=this.activeAtom.textContent;
+    const atom=this.editingAtom();
+    if(atom) atom.dataset.md=atom.textContent;
     return HtmlToMd.serialize(document.getElementById("doc"));
   },
 
   onInput(event) {
     const area=event?.target.closest?.(".md-code-area");
-    if(area) this.refreshCode(area.closest(".md-code"));
-    if (this.activeAtom) return; // atom edits sync on commit
+    if(area) {
+      this.refreshCode(area.closest(".md-code"));
+      // Observable marker for tests: a real input event reached the page.
+      window.__mdLastInput = performance.now();
+    }
+    const atom=this.editingAtom();
+    if(atom){
+      // Atom input is real pending input: keep its source in sync (debounced
+      // like prose keystrokes) so dirty state, autosave and exports see it.
+      atom.dataset.md=atom.textContent;
+      this.scheduleSync();
+      return; // atom edits never trigger prose block conversion
+    }
     this.scheduleSync();
     // Convert immediately (synchronous) so markers never linger.
     this.formatCurrentBlock(event.data);
@@ -506,23 +531,119 @@ const App = {
     this.wrapSelection("[", "](https://)");
   },
 
-  // Scroll the block at the given model block index into view (surface children
-  // follow the block order, including the trailing end block).
-  jumpToBlock(index) {
-    // Locate by model index, not raw child position: blank-line paragraphs
-    // are inserted between blocks and would otherwise shift the target.
+  // Find the rendered element (and an editable inner node) for a model index.
+  locateBlock(index) {
     const doc = document.getElementById("doc");
     const child = doc.querySelector('[data-model-index="' + index + '"]')
       || doc.children[Math.max(0, index)];
-    if (child) {
-      child.scrollIntoView({ block: "start" });
-      const focusable = child.matches("h1,h2,h3,h4,h5,h6,p,li,blockquote")
-        ? child : (child.querySelector("h1,h2,h3,h4,h5,h6,p,li") || child);
-      const range = document.createRange();
-      range.selectNodeContents(focusable); range.collapse(true);
-      const selection = getSelection();
-      selection.removeAllRanges(); selection.addRange(range);
+    if (!child) return null;
+    const focusable = child.matches("h1,h2,h3,h4,h5,h6,p,li,blockquote")
+      ? child : (child.querySelector("h1,h2,h3,h4,h5,h6,p,li,blockquote") || child);
+    return { child, focusable };
+  },
+
+  // Scroll the block at the given model block index into view (surface children
+  // follow the block order, including the trailing end block).
+  jumpToBlock(index) {
+    const located = this.locateBlock(index);
+    if (!located) return;
+    located.child.scrollIntoView({ block: "start" });
+    const range = document.createRange();
+    range.selectNodeContents(located.focusable); range.collapse(true);
+    const selection = getSelection();
+    selection.removeAllRanges(); selection.addRange(range);
+  },
+
+  // Search-result jump: model block index plus an in-block text offset.
+  jumpToLine(index, offset = 0) {
+    const located = this.locateBlock(index);
+    if (!located) return JSON.stringify({ found: false });
+    located.child.scrollIntoView({ block: "start" });
+    const range = this.caretRange(located.focusable, Math.max(0, offset | 0));
+    range.collapse(true);
+    const selection = getSelection();
+    selection.removeAllRanges(); selection.addRange(range);
+    return JSON.stringify({ found: true });
+  },
+
+  // Model index of the block owning the current caret (F2 "edit block source").
+  get activeIndex() {
+    const node = this.selectionElement();
+    const host = node && node.closest && node.closest("[data-model-index]");
+    return host ? Number(host.dataset.modelIndex) : 0;
+  },
+
+  // Put the caret into (or open the source editor of) the block at `index`.
+  switchTo(index, options = {}) {
+    const located = this.locateBlock(index);
+    if (!located) return;
+    located.child.scrollIntoView({ block: "start" });
+    const atom = (located.child.classList && located.child.classList.contains("md-atom"))
+      ? located.child : (located.child.querySelector && located.child.querySelector(".md-atom"));
+    if (atom && !this.editingAtom()) {
+      this.editAtom(atom);
+      return;
     }
+    const code = (located.child.classList && located.child.classList.contains("md-code"))
+      ? located.child : (located.child.querySelector && located.child.querySelector(".md-code"));
+    if (code) {
+      const area = code.querySelector(".md-code-area");
+      if (area) {
+        this.selectOffsets(area, Number(options.caret) || 0);
+        area.focus();
+        return;
+      }
+    }
+    const range = this.caretRange(located.focusable, Number(options.caret) || 0);
+    range.collapse(true);
+    const selection = getSelection();
+    selection.removeAllRanges(); selection.addRange(range);
+  },
+
+  // Native window.find leaves no persistent highlight; drop its selection.
+  clearDocumentFind() {
+    try { getSelection().removeAllRanges(); } catch (_) { /* no selection yet */ }
+  },
+
+  // Toggle the task checkbox of the current list item; in a plain item insert
+  // one; elsewhere convert the current block into a task item.
+  toggleCurrentTask() {
+    const host = this.selectionElement();
+    const li = host && host.closest && host.closest("#doc li");
+    if (li) {
+      let cb = (li.querySelector && li.querySelector(":scope > input.task-checkbox"))
+        || li.querySelector("input.task-checkbox");
+      if (cb) {
+        const now = !cb.hasAttribute("checked");
+        cb.toggleAttribute("checked", now);
+        cb.checked = now;
+      } else {
+        cb = document.createElement("input");
+        cb.type = "checkbox";
+        cb.className = "task-checkbox";
+        cb.setAttribute("tabindex", "-1");
+        li.insertBefore(cb, li.firstChild);
+      }
+      this.scheduleSync();
+      return;
+    }
+    const block = host && host.closest
+      && host.closest("h1,h2,h3,h4,h5,h6,p,blockquote");
+    if (!block || block.closest(".md-code,table,.md-atom")) return;
+    const caret = this.caretOffsetIn(block);
+    const ul = document.createElement("ul");
+    const item = document.createElement("li");
+    const cb = document.createElement("input");
+    cb.type = "checkbox";
+    cb.className = "task-checkbox";
+    cb.setAttribute("tabindex", "-1");
+    item.appendChild(cb);
+    while (block.firstChild) item.appendChild(block.firstChild);
+    ul.appendChild(item);
+    block.replaceWith(ul);
+    this.postProcess(document.getElementById("doc"));
+    this.restoreCaret(item, caret);
+    this.scheduleSync();
   },
 
   // Native in-page find over the rendered surface. Returns match info.
@@ -562,7 +683,7 @@ const App = {
     const cell=event.target.closest?.("th,td");
     if(cell) this.lastTableCell=cell;
     const atom = event.target.closest && event.target.closest(".md-atom");
-    if (atom && !this.activeAtom) {
+    if (atom && !this.editingAtom()) {
       event.preventDefault();
       this.editAtom(atom);
     }
@@ -579,15 +700,13 @@ const App = {
   },
 
   commitAtom(apply) {
-    const atom = this.activeAtom;
+    const atom = this.editingAtom();
     if (!atom) return;
-    const md = atom.textContent;
-    if (apply && md !== atom.dataset.mdBefore) {
-      atom.setAttribute("data-md", md);
-      this.bridge.updateSurfaceText(
-        HtmlToMd.serialize(document.getElementById("doc")));
-    }
+    // Keep the source even when unchanged so Esc can restore mdBefore after
+    // the debounced live sync (atom input updates data-md immediately).
+    atom.setAttribute("data-md", apply ? atom.textContent : atom.dataset.mdBefore);
     this.activeAtom = null;
+    this.pushSurface(); // settle the model before rebuilding the surface
     this.loadSurface(); // re-render; keeps the model and surface consistent
   },
 
@@ -958,7 +1077,7 @@ const App = {
   onKeyDown(event) {
     if(event.isComposing || event.keyCode===229) return;
     // Keystrokes inside an atom that is in source-edit mode.
-    if (this.activeAtom) {
+    if (this.editingAtom()) {
       const ctrl = event.ctrlKey || event.metaKey;
       if (event.key === "Escape") {
         event.preventDefault(); this.commitAtom(false);

@@ -1,0 +1,716 @@
+{
+  "date": "2026-10-22",
+  "baseline": "0f3c72225287e8f8b04d96e9e36be2e6ec0135c0",
+  "version": "0.3.6",
+  "scope": "Current-source review; temporary settings/files; no business-code changes or installation.",
+  "findings": {
+    "P1": [
+      "external reload silently discards atom draft",
+      "first save leaves detached activeAtom and suppresses later autosave",
+      "indented code has unsafe fixed backtick fence",
+      "Save As rewrites indented-code image examples"
+    ],
+    "P2": [
+      "missing page command implementations",
+      "export omits pending atom edits",
+      "cleanup exception suppresses export completion",
+      "literal text becomes Markdown syntax",
+      "image/link reverse serialization lacks escaping",
+      "inline HTML/attributes/abbreviations lose semantics",
+      "Save As parses balanced-parenthesis image path incorrectly",
+      "lazy continuations leave quote/list"
+    ]
+  },
+  "python_tests": {
+    "first": {
+      "log": "python-tests.log",
+      "total": 138,
+      "passed": 135,
+      "failed": 2,
+      "skipped": 1,
+      "seconds": 118.818,
+      "status": "FAILED (failures=2, skipped=1)",
+      "failures": [
+        "test_media_deadline_and_cancel_complete_once (test_export_services.ExportServicesTests)",
+        "test_report_roundtrips_remain_stable_after_reopen (test_report_regressions.ReportLiveTests) (name='indented_code'\n)"
+      ]
+    },
+    "rerun": {
+      "log": "python-tests-rerun.log",
+      "total": 138,
+      "passed": 135,
+      "failed": 2,
+      "skipped": 1,
+      "seconds": 96.964,
+      "status": "FAILED (failures=2, skipped=1)",
+      "failures": [
+        "test_multiline_tab_and_outdent (test_code_table_experience.CodeTableExperienceTests)",
+        "test_quote_skip_and_empty_pair_backspace (test_code_table_experience.CodeTableExperienceTests)"
+      ]
+    },
+    "focused_repeats": {
+      "log": "focused-tests.log",
+      "total": 12,
+      "passed": 12,
+      "failed": 0,
+      "skipped": 0,
+      "seconds": 14.225,
+      "status": "OK",
+      "failures": []
+    },
+    "standalone_assertions": {
+      "plugin": 8,
+      "search": 11
+    },
+    "counts_note": "Both full runs: 135 passed, 2 failed, 1 skipped of 138. Four distinct failing methods each passed 3 focused repeats."
+  },
+  "javascript_tests": {
+    "total": 44,
+    "passed": 44,
+    "failed": 0,
+    "log": "javascript-tests.log"
+  },
+  "static": {
+    "python_ast_files": 49,
+    "javascript_syntax": [
+      {
+        "file": "mdnote\\editor\\web\\app.js",
+        "exit_code": 0,
+        "stderr": ""
+      },
+      {
+        "file": "mdnote\\editor\\web\\code_editor.js",
+        "exit_code": 0,
+        "stderr": ""
+      },
+      {
+        "file": "mdnote\\editor\\web\\html_to_md.js",
+        "exit_code": 0,
+        "stderr": ""
+      },
+      {
+        "file": "mdnote\\editor\\web\\md_inline.js",
+        "exit_code": 0,
+        "stderr": ""
+      },
+      {
+        "file": "tests\\test_code_editing.js",
+        "exit_code": 0,
+        "stderr": ""
+      },
+      {
+        "file": "tests\\test_html_to_md.js",
+        "exit_code": 0,
+        "stderr": ""
+      },
+      {
+        "file": "tests\\test_md_inline.js",
+        "exit_code": 0,
+        "stderr": ""
+      }
+    ],
+    "web_assets": 69,
+    "different_web_assets": [],
+    "different_packaged_modules": [],
+    "packaged_modules_compared": 30,
+    "manifest": {
+      "version": "0.3.6",
+      "notes": "本次更新内容：\n\n- 修复浅色主题编辑区背景发黑\n- 修复页面未就绪时关闭标签可能清空文件\n- 提升复杂列表、列表转标题/正文的保真并支持撤销重做，保留有序列表起始编号\n- 修复代码反斜杠、表格竖线重复转义、文字实体（&、<）被当成 HTML 的问题\n- 支持 [toc] 目录、定义列表与原始 HTML 源码保留\n- 修复图片本地路径（空格、中文、查询参数）与跨块引用/脚注\n- 长文档分批渲染，HTML 生成耗时下降约 43%",
+      "url": "https://github.com/Wjkstra/md_tools/releases/download/v0.3.6/MdNote-Setup-0.3.6.exe",
+      "sha256": "efea4849e16f5f6aea03d78258e6612dc89338901a85337f50c840dc1f4fad5d"
+    },
+    "packaged_version_constants": [
+      "MdNote native application package.",
+      "0.3.6",
+      null
+    ],
+    "installer_sha256": "efea4849e16f5f6aea03d78258e6612dc89338901a85337f50c840dc1f4fad5d",
+    "installer_matches_manifest": true,
+    "system_pip_check": {
+      "exit_code": 0,
+      "stdout": "No broken requirements found.\n",
+      "stderr": ""
+    },
+    "baseline": "0f3c72225287e8f8b04d96e9e36be2e6ec0135c0",
+    "test_dependencies": {
+      "PySide6": "6.11.1",
+      "Markdown": "3.10.1",
+      "Pygments": "2.21.0",
+      "nh3": "0.3.7"
+    },
+    "performance": [
+      {
+        "paragraphs": 1000,
+        "characters": 80888,
+        "surface_ms": [
+          1192.01,
+          716.36,
+          1032.58
+        ],
+        "median_ms": 1032.58
+      },
+      {
+        "paragraphs": 3000,
+        "characters": 244888,
+        "surface_ms": [
+          2488.65,
+          2435.93,
+          1775.31
+        ],
+        "median_ms": 2435.93
+      },
+      {
+        "paragraphs": 10000,
+        "characters": 818888,
+        "surface_ms": [
+          5761.94,
+          6081.08,
+          5229.05
+        ],
+        "median_ms": 5761.94
+      }
+    ]
+  },
+  "probe": {
+    "roundtrip": {
+      "entity_stars": {
+        "source": "Text &#42;literal&#42; end",
+        "saved": "Text *literal* end",
+        "capture_ok": true,
+        "same_render": false,
+        "before": "<p>Text &#42;literal&#42; end</p>",
+        "after": "<p>Text <em>literal</em> end</p>",
+        "dom": "<p data-model-index=\"0\">Text *literal* end</p><p class=\"surface-end\"><br></p>"
+      },
+      "entity_brackets": {
+        "source": "Text &#91;site&#93;(https://example.invalid/) end",
+        "saved": "Text [site](https://example.invalid/) end",
+        "capture_ok": true,
+        "same_render": false,
+        "before": "<p>Text &#91;site&#93;(https://example.invalid/) end</p>",
+        "after": "<p>Text <a href=\"https://example.invalid/\">site</a> end</p>",
+        "dom": "<p data-model-index=\"0\">Text [site](https://example.invalid/) end</p><p class=\"surface-end\"><br></p>"
+      },
+      "literal_unmatched_stars": {
+        "source": "one * two ** three",
+        "saved": "one * two ** three",
+        "capture_ok": true,
+        "same_render": true,
+        "before": "<p>one * two ** three</p>",
+        "after": "<p>one * two ** three</p>",
+        "dom": "<p data-model-index=\"0\">one * two ** three</p><p class=\"surface-end\"><br></p>"
+      },
+      "inline_html": {
+        "source": "Text <mark>highlight</mark> and <sup>2</sup> end",
+        "saved": "Text highlight and 2 end",
+        "capture_ok": true,
+        "same_render": false,
+        "before": "<p>Text <mark>highlight</mark> and <sup>2</sup> end</p>",
+        "after": "<p>Text highlight and 2 end</p>",
+        "dom": "<p data-model-index=\"0\">Text <mark>highlight</mark> and <sup>2</sup> end</p><p class=\"surface-end\"><br></p>"
+      },
+      "inline_html_br": {
+        "source": "first<br>second",
+        "saved": "first\nsecond",
+        "capture_ok": true,
+        "same_render": false,
+        "before": "<p>first<br>second</p>",
+        "after": "<p>first<br />\nsecond</p>",
+        "dom": "<p data-model-index=\"0\">first<br>second</p><p class=\"surface-end\"><br></p>"
+      },
+      "code_with_spaces": {
+        "source": "`  padded  `",
+        "saved": "`padded`",
+        "capture_ok": true,
+        "same_render": true,
+        "before": "<p><code>padded</code></p>",
+        "after": "<p><code>padded</code></p>",
+        "dom": "<p data-model-index=\"0\"><code>padded</code></p><p class=\"surface-end\"><br></p>"
+      },
+      "code_backticks": {
+        "source": "    ```\n    inner\n    ```",
+        "saved": "```\n```\ninner\n```\n```",
+        "capture_ok": true,
+        "same_render": false,
+        "before": "<div class=\"codehilite\"><pre><span></span><code>```\ninner\n```\n</code></pre></div>",
+        "after": "<div class=\"codehilite\"><pre><span></span><code>\n</code></pre></div>\n\n<p>inner</p>\n<div class=\"codehilite\"><pre><span></span><code>\n</code></pre></div>",
+        "dom": "<div data-model-index=\"0\"><pre><span></span><code>```\ninner\n```\n</code></pre></div><p class=\"surface-end\"><br></p>"
+      },
+      "code_in_list": {
+        "source": "- parent\n\n        ```\n        inner\n        ```\n\n- sibling",
+        "saved": "- parent\n\n    ```\n    ```\n    inner\n    ```\n    ```\n\n- sibling",
+        "capture_ok": true,
+        "same_render": false,
+        "before": "<ul>\n<li>\n<p>parent</p>\n<div class=\"codehilite\"><pre><span></span><code>```\ninner\n```\n</code></pre></div>\n\n</li>\n<li>\n<p>sibling</p>\n</li>\n</ul>",
+        "after": "<ul>\n<li>\n<p>parent</p>\n<p><code></code><br />\ninner<br />\n<code></code></p>\n</li>\n<li>\n<p>sibling</p>\n</li>\n</ul>",
+        "dom": "<ul data-model-index=\"0\">\n<li>\n<p>parent</p>\n<div><pre><span></span><code>```\ninner\n```\n</code></pre></div>\n\n</li>\n<li>\n<p>sibling</p>\n</li>\n</ul><p class=\"surface-end\"><br></p>"
+      },
+      "link_space": {
+        "source": "[site](<https://example.invalid/a b>)",
+        "saved": "[site](https://example.invalid/a b)",
+        "capture_ok": true,
+        "same_render": true,
+        "before": "<p><a href=\"https://example.invalid/a b\">site</a></p>",
+        "after": "<p><a href=\"https://example.invalid/a b\">site</a></p>",
+        "dom": "<p data-model-index=\"0\"><a href=\"https://example.invalid/a b\" rel=\"noopener noreferrer\">site</a></p><p class=\"surface-end\"><br></p>"
+      },
+      "link_paren": {
+        "source": "[site](<https://example.invalid/a(b>)",
+        "saved": "[site](https://example.invalid/a(b)",
+        "capture_ok": true,
+        "same_render": false,
+        "before": "<p><a href=\"https://example.invalid/a(b\">site</a></p>",
+        "after": "<p>[site](https://example.invalid/a(b)</p>",
+        "dom": "<p data-model-index=\"0\"><a href=\"https://example.invalid/a(b\" rel=\"noopener noreferrer\">site</a></p><p class=\"surface-end\"><br></p>"
+      },
+      "image_space": {
+        "source": "![photo](<assets/my photo.png>)",
+        "saved": "![photo](assets/my photo.png)",
+        "capture_ok": true,
+        "same_render": true,
+        "before": "<p><img alt=\"photo\" src=\"assets/my photo.png\" /></p>",
+        "after": "<p><img alt=\"photo\" src=\"assets/my photo.png\" /></p>",
+        "dom": "<p data-model-index=\"0\"><img alt=\"photo\" src=\"assets/my photo.png\"></p><p class=\"surface-end\"><br></p>"
+      },
+      "image_paren": {
+        "source": "![photo](<assets/a(b.png>)",
+        "saved": "![photo](assets/a(b.png)",
+        "capture_ok": true,
+        "same_render": false,
+        "before": "<p><img alt=\"photo\" src=\"assets/a(b.png\" /></p>",
+        "after": "<p>![photo](assets/a(b.png)</p>",
+        "dom": "<p data-model-index=\"0\"><img alt=\"photo\" src=\"assets/a(b.png\"></p><p class=\"surface-end\"><br></p>"
+      },
+      "image_alt": {
+        "source": "![a\\]b](x.png)",
+        "saved": "![a]b](x.png)",
+        "capture_ok": true,
+        "same_render": false,
+        "before": "<p><img alt=\"a]b\" src=\"x.png\" /></p>",
+        "after": "<p>![a]b](x.png)</p>",
+        "dom": "<p data-model-index=\"0\"><img alt=\"a]b\" src=\"x.png\"></p><p class=\"surface-end\"><br></p>"
+      },
+      "list_task_loose": {
+        "source": "- [x] first\n\n    second\n\n- [ ] last",
+        "saved": "- [x] first\n\n    second\n\n- [ ] last",
+        "capture_ok": true,
+        "same_render": true,
+        "before": "<ul>\n<li>\n<p>[x] first</p>\n<p>second</p>\n</li>\n<li>\n<p>[ ] last</p>\n</li>\n</ul>",
+        "after": "<ul>\n<li>\n<p>[x] first</p>\n<p>second</p>\n</li>\n<li>\n<p>[ ] last</p>\n</li>\n</ul>",
+        "dom": "<ul data-model-index=\"0\">\n<li>\n<p>[x] first</p>\n<p>second</p>\n</li>\n<li>\n<p>[ ] last</p>\n</li>\n</ul><p class=\"surface-end\"><br></p>"
+      },
+      "list_task_nested": {
+        "source": "- [x] parent\n    - [ ] child\n- [ ] sibling",
+        "saved": "- [x] parent\n    - [ ] child\n- [ ] sibling",
+        "capture_ok": true,
+        "same_render": true,
+        "before": "<ul>\n<li class=\"task-list-item\"><input class=\"task-checkbox\" type=\"checkbox\" disabled checked/>parent<ul>\n<li class=\"task-list-item\"><input class=\"task-checkbox\" type=\"checkbox\" disabled />child</li>\n</ul>\n</li>\n<li class=\"task-list-item\"><input class=\"task-checkbox\" type=\"checkbox\" disabled />sibling</li>\n</ul>",
+        "after": "<ul>\n<li class=\"task-list-item\"><input class=\"task-checkbox\" type=\"checkbox\" disabled checked/>parent<ul>\n<li class=\"task-list-item\"><input class=\"task-checkbox\" type=\"checkbox\" disabled />child</li>\n</ul>\n</li>\n<li class=\"task-list-item\"><input class=\"task-checkbox\" type=\"checkbox\" disabled />sibling</li>\n</ul>",
+        "dom": "<ul data-model-index=\"0\">\n<li><input class=\"task-checkbox\" type=\"checkbox\" checked=\"\" tabindex=\"-1\">parent<ul>\n<li><input class=\"task-checkbox\" type=\"checkbox\" tabindex=\"-1\">child</li>\n</ul>\n</li>\n<li><input class=\"task-checkbox\" type=\"checkbox\" tabindex=\"-1\">sibling</li>\n</ul><p class=\"surface-end\"><br></p>"
+      },
+      "heading_setext": {
+        "source": "Heading\n=======\n\ntext",
+        "saved": "# Heading\n\ntext",
+        "capture_ok": true,
+        "same_render": true,
+        "before": "<h1 id=\"heading\">Heading</h1>\n<p>text</p>",
+        "after": "<h1 id=\"heading\">Heading</h1>\n<p>text</p>",
+        "dom": "<h1 data-model-index=\"0\">Heading</h1><p data-model-index=\"1\">text</p><p class=\"surface-end\"><br></p>"
+      },
+      "heading_attrs": {
+        "source": "# Heading {#custom}\n\n[go](#custom)",
+        "saved": "# Heading\n\n[go](#custom)",
+        "capture_ok": true,
+        "same_render": false,
+        "before": "<h1 id=\"custom\">Heading</h1>\n<p><a href=\"#custom\">go</a></p>",
+        "after": "<h1 id=\"heading\">Heading</h1>\n<p><a href=\"#custom\">go</a></p>",
+        "dom": "<h1 data-model-index=\"0\">Heading</h1><p data-model-index=\"1\"><a href=\"#custom\" rel=\"noopener noreferrer\">go</a></p><p class=\"surface-end\"><br></p>"
+      },
+      "emphasis_nested": {
+        "source": "***bold italic*** and **outer *inner* outer**",
+        "saved": "***bold italic*** and **outer *inner* outer**",
+        "capture_ok": true,
+        "same_render": true,
+        "before": "<p><strong><em>bold italic</em></strong> and <strong>outer <em>inner</em> outer</strong></p>",
+        "after": "<p><strong><em>bold italic</em></strong> and <strong>outer <em>inner</em> outer</strong></p>",
+        "dom": "<p data-model-index=\"0\"><strong><em>bold italic</em></strong> and <strong>outer <em>inner</em> outer</strong></p><p class=\"surface-end\"><br></p>"
+      },
+      "literal_backslash": {
+        "source": "a\\b and c\\\\d",
+        "saved": "a\\b and c\\\\d",
+        "capture_ok": true,
+        "same_render": true,
+        "before": "<p>a\\b and c\\d</p>",
+        "after": "<p>a\\b and c\\d</p>",
+        "dom": "<p data-model-index=\"0\">a\\b and c<span class=\"md-literal\" data-md=\"\\\\\">\\</span>d</p><p class=\"surface-end\"><br></p>"
+      },
+      "table_code_tick": {
+        "source": "| A | B |\n| --- | --- |\n| `a\\|b` | c |",
+        "saved": "| A | B |\n| --- | --- |\n| `a\\|b` | c |",
+        "capture_ok": true,
+        "same_render": true,
+        "before": "<table>\n<thead>\n<tr>\n<th>A</th>\n<th>B</th>\n</tr>\n</thead>\n<tbody>\n<tr>\n<td><code>a\\|b</code></td>\n<td>c</td>\n</tr>\n</tbody>\n</table>",
+        "after": "<table>\n<thead>\n<tr>\n<th>A</th>\n<th>B</th>\n</tr>\n</thead>\n<tbody>\n<tr>\n<td><code>a\\|b</code></td>\n<td>c</td>\n</tr>\n</tbody>\n</table>",
+        "dom": "<table data-model-index=\"0\" title=\"Ctrl+Enter 新增行 · Alt+Enter 新增列 · Tab 下一个单元格\">\n<thead>\n<tr>\n<th>A</th>\n<th>B</th>\n</tr>\n</thead>\n<tbody>\n<tr>\n<td><code>a\\|b</code></td>\n<td>c</td>\n</tr>\n</tbody>\n</table><p class=\"surface-end\"><br></p>"
+      },
+      "leading_whitespace": {
+        "source": "\n\n# Title\n\ntext\n\n",
+        "saved": "# Title\n\ntext",
+        "capture_ok": true,
+        "same_render": true,
+        "before": "<h1 id=\"title\">Title</h1>\n<p>text</p>",
+        "after": "<h1 id=\"title\">Title</h1>\n<p>text</p>",
+        "dom": "<h1 data-model-index=\"0\">Title</h1><p data-model-index=\"1\">text</p><p class=\"surface-end\"><br></p>"
+      },
+      "abbr": {
+        "source": "The HTML spec.\n\n*[HTML]: Hyper Text Markup Language",
+        "saved": "The HTML spec.",
+        "capture_ok": true,
+        "same_render": false,
+        "before": "<p>The <abbr title=\"Hyper Text Markup Language\">HTML</abbr> spec.</p>",
+        "after": "<p>The HTML spec.</p>",
+        "dom": "<p data-model-index=\"0\">The <abbr>HTML</abbr> spec.</p><p class=\"surface-end\"><br></p>"
+      },
+      "adjacent_list_types": {
+        "source": "- a\n- b\n\n1. c\n2. d",
+        "saved": "- a\n- b\n\n1. c\n2. d",
+        "capture_ok": true,
+        "same_render": true,
+        "before": "<ul>\n<li>a</li>\n<li>b</li>\n</ul>\n<ol>\n<li>c</li>\n<li>d</li>\n</ol>",
+        "after": "<ul>\n<li>a</li>\n<li>b</li>\n</ul>\n<ol>\n<li>c</li>\n<li>d</li>\n</ol>",
+        "dom": "<ul data-model-index=\"0\">\n<li>a</li>\n<li>b</li>\n</ul>\n<ol>\n<li>c</li>\n<li>d</li>\n</ol><p class=\"surface-end\"><br></p>"
+      },
+      "lazy_quote": {
+        "source": "> first\ncontinuation\n\nAfter",
+        "saved": "> first\n\ncontinuation\n\nAfter",
+        "capture_ok": true,
+        "same_render": false,
+        "before": "<blockquote>\n<p>first<br />\ncontinuation</p>\n</blockquote>\n<p>After</p>",
+        "after": "<blockquote>\n<p>first</p>\n</blockquote>\n<p>continuation</p>\n<p>After</p>",
+        "dom": "<blockquote data-model-index=\"0\">\n<p>first</p>\n</blockquote><p data-model-index=\"1\">continuation</p><p data-model-index=\"2\">After</p><p class=\"surface-end\"><br></p>"
+      },
+      "lazy_list": {
+        "source": "- first\ncontinuation\n\nAfter",
+        "saved": "- first\n\ncontinuation\n\nAfter",
+        "capture_ok": true,
+        "same_render": false,
+        "before": "<ul>\n<li>first<br />\ncontinuation</li>\n</ul>\n<p>After</p>",
+        "after": "<ul>\n<li>first</li>\n</ul>\n<p>continuation</p>\n<p>After</p>",
+        "dom": "<ul data-model-index=\"0\">\n<li>first</li>\n</ul><p data-model-index=\"1\">continuation</p><p data-model-index=\"2\">After</p><p class=\"surface-end\"><br></p>"
+      }
+    },
+    "active_atom_after_reload": "{\"active\":true,\"connected\":false}",
+    "search_location": {
+      "method": "undefined",
+      "page": "{\"errors\":[\"Script error.\"],\"selection\":\"first\"}"
+    },
+    "reload_then_type": {
+      "model": "After reload",
+      "capture": "After reload EDITED",
+      "state": "{\"active\":true,\"connected\":false}"
+    },
+    "save_as": {
+      "indented_code": {
+        "source": "    ![](x.png)",
+        "saved": "    ![](assets/x.png)",
+        "copies": [
+          "x.png"
+        ]
+      },
+      "balanced_parens": {
+        "source": "![x](a(b).png)",
+        "saved": "![x](../old/a%28b).png)",
+        "copies": []
+      },
+      "inline_code": {
+        "source": "`![](x.png)`",
+        "saved": "`![](x.png)`",
+        "copies": []
+      },
+      "ordinary": {
+        "source": "![](x.png)",
+        "saved": "![](assets/x.png)",
+        "copies": [
+          "x.png"
+        ]
+      }
+    }
+  },
+  "followup": {
+    "disk_roundtrip": {
+      "entity_stars": {
+        "save_ok": true,
+        "source": "Text &#42;literal&#42; end",
+        "saved": "Text *literal* end",
+        "before": "<p>Text &#42;literal&#42; end</p>",
+        "after": "<p>Text <em>literal</em> end</p>",
+        "alerts": 0
+      },
+      "inline_html": {
+        "save_ok": true,
+        "source": "Text <mark>highlight</mark> and <sup>2</sup> end",
+        "saved": "Text highlight and 2 end",
+        "before": "<p>Text <mark>highlight</mark> and <sup>2</sup> end</p>",
+        "after": "<p>Text highlight and 2 end</p>",
+        "alerts": 0
+      },
+      "code_backticks": {
+        "save_ok": true,
+        "source": "    ```\n    inner\n    ```",
+        "saved": "```\n```\ninner\n```\n```",
+        "before": "<div class=\"codehilite\"><pre><span></span><code>```\ninner\n```\n</code></pre></div>",
+        "after": "<div class=\"codehilite\"><pre><span></span><code>\n</code></pre></div>\n\n<p>inner</p>\n<div class=\"codehilite\"><pre><span></span><code>\n</code></pre></div>",
+        "alerts": 0
+      },
+      "code_in_list": {
+        "save_ok": true,
+        "source": "- parent\n\n        ```\n        inner\n        ```\n\n- sibling",
+        "saved": "- parent\n\n    ```\n    ```\n    inner\n    ```\n    ```\n\n- sibling",
+        "before": "<ul>\n<li>\n<p>parent</p>\n<div class=\"codehilite\"><pre><span></span><code>```\ninner\n```\n</code></pre></div>\n\n</li>\n<li>\n<p>sibling</p>\n</li>\n</ul>",
+        "after": "<ul>\n<li>\n<p>parent</p>\n<p><code></code><br />\ninner<br />\n<code></code></p>\n</li>\n<li>\n<p>sibling</p>\n</li>\n</ul>",
+        "alerts": 0
+      },
+      "image_alt": {
+        "save_ok": true,
+        "source": "![a\\]b](x.png)",
+        "saved": "![a]b](x.png)",
+        "before": "<p><img alt=\"a]b\" src=\"x.png\" /></p>",
+        "after": "<p>![a]b](x.png)</p>",
+        "alerts": 0
+      },
+      "image_paren": {
+        "save_ok": true,
+        "source": "![photo](<assets/a(b.png>)",
+        "saved": "![photo](assets/a(b.png)",
+        "before": "<p><img alt=\"photo\" src=\"assets/a(b.png\" /></p>",
+        "after": "<p>![photo](assets/a(b.png)</p>",
+        "alerts": 0
+      },
+      "heading_attrs": {
+        "save_ok": true,
+        "source": "# Heading {#custom}\n\n[go](#custom)",
+        "saved": "# Heading\n\n[go](#custom)",
+        "before": "<h1 id=\"custom\">Heading</h1>\n<p><a href=\"#custom\">go</a></p>",
+        "after": "<h1 id=\"heading\">Heading</h1>\n<p><a href=\"#custom\">go</a></p>",
+        "alerts": 0
+      },
+      "abbr": {
+        "save_ok": true,
+        "source": "The HTML spec.\n\n*[HTML]: Hyper Text Markup Language",
+        "saved": "The HTML spec.",
+        "before": "<p>The <abbr title=\"Hyper Text Markup Language\">HTML</abbr> spec.</p>",
+        "after": "<p>The HTML spec.</p>",
+        "alerts": 0
+      },
+      "lazy_quote": {
+        "save_ok": true,
+        "source": "> first\ncontinuation\n\nAfter",
+        "saved": "> first\n\ncontinuation\n\nAfter",
+        "before": "<blockquote>\n<p>first<br />\ncontinuation</p>\n</blockquote>\n<p>After</p>",
+        "after": "<blockquote>\n<p>first</p>\n</blockquote>\n<p>continuation</p>\n<p>After</p>",
+        "alerts": 0
+      },
+      "lazy_list": {
+        "save_ok": true,
+        "source": "- first\ncontinuation\n\nAfter",
+        "saved": "- first\n\ncontinuation\n\nAfter",
+        "before": "<ul>\n<li>first<br />\ncontinuation</li>\n</ul>\n<p>After</p>",
+        "after": "<ul>\n<li>first</li>\n</ul>\n<p>continuation</p>\n<p>After</p>",
+        "alerts": 0
+      }
+    },
+    "export_pending_atom": {
+      "export_source": "$$\nx=1\n$$\n\nBefore",
+      "capture": "$$\nREVIEWPENDINGATOM72941\n$$\n\nBefore",
+      "artifact_has_pending": false
+    },
+    "external_atom": {
+      "dirty_before": false,
+      "dom_before": "$$\nx=1\n$$REVIEWNEWATOM72941",
+      "model_before": "$$\nx=1\n$$\n\nBefore",
+      "confirm_calls": 0,
+      "model_after": "External replacement",
+      "capture_after": "External replacement",
+      "dom_after": "External replacement"
+    },
+    "save_as_disk": {
+      "indented_code": {
+        "ok": true,
+        "source": "    ![](x.png)",
+        "saved": "    ![](assets/x.png)"
+      },
+      "balanced_parens": {
+        "ok": true,
+        "source": "![x](a(b).png)",
+        "saved": "![x](../old/a%28b).png)"
+      }
+    }
+  },
+  "natural_reload": {
+    "save_ok": true,
+    "state": "{\"active\":true,\"connected\":false}",
+    "dirty": false,
+    "model": "$$\nx=2\n$$\n\nBefore",
+    "capture": "$$\nx=2\n$$\n\nBefore LATEST",
+    "disk": "$$\nx=2\n$$\n\nBefore",
+    "disk_after_autosave": "$$\nx=2\n$$\n\nBefore"
+  },
+  "diagnostics": {
+    "missing_commands": {
+      "jumpToLine": "undefined",
+      "switchTo": "undefined",
+      "toggleCurrentTask": "undefined",
+      "clearDocumentFind": "undefined"
+    },
+    "menu_commands": {
+      "before": "# Review\n\n- [ ] task\n\n```python\nprint(\"hello\")\n```\n\n| A | B |\n| --- | --- |\n| one | two |\n\n$$\nx^2\n$$",
+      "after": "# Review\n\n- [ ] task\n\n```python\nprint(\"hello\")\n```\n\n| A | B |\n| --- | --- |\n| one | two |\n\n$$\nx^2\n$$",
+      "errors": "[\"Script error.\",\"Script error.\"]"
+    },
+    "cleanup_failure": {
+      "exception": "PermissionError: simulated Windows sharing violation",
+      "done": true,
+      "finished_signals": []
+    },
+    "performance": [
+      {
+        "paragraphs": 1000,
+        "characters": 80888,
+        "surface_ms": [
+          414.42,
+          327.11,
+          340.06
+        ],
+        "median_ms": 340.06
+      },
+      {
+        "paragraphs": 3000,
+        "characters": 244888,
+        "surface_ms": [
+          1214.79,
+          1039.62,
+          1264.21
+        ],
+        "median_ms": 1214.79
+      },
+      {
+        "paragraphs": 10000,
+        "characters": 818888,
+        "surface_ms": [
+          3929.04,
+          4169.16,
+          4907.4
+        ],
+        "median_ms": 4169.16
+      }
+    ]
+  },
+  "interpretation_notes": [
+    "Raw HTML string differences are candidates; equivalent BR/newline normalization is not counted as a defect.",
+    "Use followup.export_pending_atom unique marker and intercepted export source; preliminary whole-artifact substring 999 is not valid evidence and is excluded.",
+    "Use diagnostics.performance for sequential medians; static.performance was measured with other tasks running.",
+    "Detached atom after first Save As was reproduced through the real save controller, not only direct DOM reload.",
+    "Export cleanup Windows sharing violation was seen in the first full suite and verified by fault injection; focused repeats passing do not invalidate its exception path."
+  ],
+  "unverified": [
+    "real installer/upgrade/uninstall/UAC",
+    "packaged executable execution and single-instance race",
+    "online update/download",
+    "physical Chinese IME",
+    "other OS/DPI/assistive technology",
+    "online dependency vulnerability databases",
+    "actual Pandoc artifacts"
+  ],
+  "local_artifacts": [
+    {
+      "path": ".audit-tool\\review-2026-10-22\\collect_evidence.py",
+      "bytes": 3756,
+      "sha256": "132a0f6d291fd118d3f6968e170e8821903e4c0320b94a46d97f119c7024730b"
+    },
+    {
+      "path": ".audit-tool\\review-2026-10-22\\diagnostics.log",
+      "bytes": 5496,
+      "sha256": "912c183541e0b0edeebc4520e1a95035977fa727d4f69b37257d1d80afce7e2f"
+    },
+    {
+      "path": ".audit-tool\\review-2026-10-22\\diagnostics.py",
+      "bytes": 3144,
+      "sha256": "e909ffbc7c0d92b4affe18f4dd6620c2bd4604cc25aba7ce7a0d174f8157d769"
+    },
+    {
+      "path": ".audit-tool\\review-2026-10-22\\focused-tests.log",
+      "bytes": 6592,
+      "sha256": "8d1b9163f151333093284425c77bda7d1d40609acf38003c66ab1ca4e8b14ff5"
+    },
+    {
+      "path": ".audit-tool\\review-2026-10-22\\followup.log",
+      "bytes": 11572,
+      "sha256": "a97a738fae050c0ff1dc4ccbca3d03fc872d9ff164fc76d6ca5709ff38b1c401"
+    },
+    {
+      "path": ".audit-tool\\review-2026-10-22\\followup.py",
+      "bytes": 4385,
+      "sha256": "7ca6ad082aa9353da683067fce07f429bcf798f4a6a782780e2de4c568d59056"
+    },
+    {
+      "path": ".audit-tool\\review-2026-10-22\\javascript-tests.log",
+      "bytes": 5450,
+      "sha256": "a856a9def1b83c0711f1a2103583215f11e3fbd3091af3f78789579ad6a56e0e"
+    },
+    {
+      "path": ".audit-tool\\review-2026-10-22\\natural-reload.log",
+      "bytes": 3524,
+      "sha256": "edc28bbd4d05ee56564e414c2d8f494531156b57ba090190e80331d7ef19e5e6"
+    },
+    {
+      "path": ".audit-tool\\review-2026-10-22\\natural_reload.py",
+      "bytes": 1689,
+      "sha256": "ffff3b24a19cd7ac39294a4c9a1f96a6590e13413d68e3c68682a59a321d8b65"
+    },
+    {
+      "path": ".audit-tool\\review-2026-10-22\\probe.log",
+      "bytes": 7204,
+      "sha256": "3b0fde7530c67dfe90679034553aefe83392c9b0d8bce0d6f39f793df751f6df"
+    },
+    {
+      "path": ".audit-tool\\review-2026-10-22\\probe.py",
+      "bytes": 6951,
+      "sha256": "30000136560ee2de412b6677b16f7107efebda4a21bbc5cdaaadfee137aa7efe"
+    },
+    {
+      "path": ".audit-tool\\review-2026-10-22\\python-tests-rerun.log",
+      "bytes": 46946,
+      "sha256": "abb2ee2d8a268a1b60894f6676ec9d6600e11e95fc167347258372af3a0f734c"
+    },
+    {
+      "path": ".audit-tool\\review-2026-10-22\\python-tests.log",
+      "bytes": 49572,
+      "sha256": "e5ad4a1c6214826b3ddfbedebd5102312fd512fa7f7424905f2a4fae0624a1cd"
+    },
+    {
+      "path": ".audit-tool\\review-2026-10-22\\run_suite.py",
+      "bytes": 1239,
+      "sha256": "1f2b4df55edaa4ab15f85ce740b1c294aaec87bcdd2cafdb58dac04672ff9821"
+    },
+    {
+      "path": ".audit-tool\\review-2026-10-22\\static.log",
+      "bytes": 5062,
+      "sha256": "826ab46d1c174d2562ff1fd2af56936365ebb1d692eb73dc8606ef7a2d524d72"
+    },
+    {
+      "path": ".audit-tool\\review-2026-10-22\\static_check.py",
+      "bytes": 3145,
+      "sha256": "69300b7f28f9e3d0af3a8dfeef91436d1a1fa6edb379cfdba4cdad25d18a325d"
+    },
+    {
+      "path": ".audit-tool\\review-2026-10-22\\ui-1280.png",
+      "bytes": 25282,
+      "sha256": "78ce4a950533ff33bd4672944a0abe5835741a276274cff38200b5151deb2f9f"
+    },
+    {
+      "path": ".audit-tool\\review-2026-10-22\\ui-600.png",
+      "bytes": 21461,
+      "sha256": "c4d47e3afe0fde07abbed8ea6b9953904c4d380f660db280b07e296183d380ac"
+    }
+  ]
+}

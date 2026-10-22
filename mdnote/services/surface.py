@@ -33,7 +33,7 @@ _SURFACE_ATTRIBUTES["span"] = set(_SURFACE_ATTRIBUTES.get("span", set())) | {"cl
 for _tag in ("a", "img"):
     _SURFACE_ATTRIBUTES[_tag] = set(_SURFACE_ATTRIBUTES.get(_tag, set())) | {"title"}
 # Structural attributes we add ourselves; safe because this is our own surface.
-_EXTRA_GLOBAL_ATTRS = {"contenteditable", "data-md", "data-lang"}
+_EXTRA_GLOBAL_ATTRS = {"contenteditable", "data-md", "data-lang", "data-md-attr-id"}
 _SURFACE_ATTRIBUTES["*"] = (
     set(_SURFACE_ATTRIBUTES.get("*", set())) | _EXTRA_GLOBAL_ATTRS)
 # Table cells keep text-align (alignment marker); the style-property whitelist
@@ -100,6 +100,15 @@ def fenced_body(raw: str) -> str:
     return "\n".join(body)
 
 
+def _is_fenced(raw: str) -> bool:
+    return re.match(r"^\s{0,3}(?:\x60{3,}|~{3,})", raw.split("\n", 1)[0]) is not None
+
+
+def indented_body(raw: str) -> str:
+    """Drop the four-space (or one-tab) indented-code indentation per line."""
+    return "\n".join(re.sub(r"^(?:    |\t)", "", line) for line in raw.split("\n"))
+
+
 def highlight_code(source: str, language: str) -> str:
     """Trusted, escaped highlighting HTML, without changing source whitespace."""
     from pygments import lex
@@ -124,7 +133,13 @@ def highlight_code(source: str, language: str) -> str:
 
 
 def _code_block(block) -> str:
-    body = fenced_body(block.raw)
+    if _is_fenced(block.raw):
+        body = fenced_body(block.raw)
+    else:
+        # Indented code block: the editor shows its de-indented body while
+        # data-md keeps the verbatim authored text (4-space indent, any
+        # embedded fences) so an untouched save round-trips exactly.
+        body = indented_body(block.raw)
     esc = lambda value: _html.escape(value, quote=True)
     lang = block.lang or ""
     return (
@@ -146,22 +161,27 @@ def _code_block(block) -> str:
 
 
 def _definition_block(block) -> str | None:
-    """Render cross-block reference/footnote definitions as preserved atoms.
+    """Render cross-block reference/footnote/abbreviation definitions as atoms.
 
     Reference links (``[id]: url "title"``) and footnotes (``[^id]: body``)
     only resolve when the whole document is parsed together; per-block
-    rendering would drop them on save. Keep them verbatim so a round trip
-    never loses the definition or its URL/title.
+    rendering would drop them on save. Abbreviations (``*[HTML]: ...``) work
+    the same way. Keep them verbatim so a round trip never loses the
+    definition or its URL/title.
     """
     if block.type != "paragraph":
         return None
     raw = block.raw.strip()
     is_reference = re.match(r"^\[[^\]\n]+\]:\s*\S+", raw) is not None
     is_footnote = re.match(r"^\[\^[^\]\n]+\]:\s*", raw) is not None
-    if not (is_reference or is_footnote):
+    is_abbreviation = re.match(r"^\*\[[^\]\n]+\]:\s*\S", raw) is not None
+    if is_reference or is_footnote:
+        kind = "atom-footnote-def" if is_footnote else "atom-reference-def"
+        label = "脚注定义" if is_footnote else "引用定义"
+    elif is_abbreviation:
+        kind, label = "atom-abbr-def", "缩写定义"
+    else:
         return None
-    kind = "atom-footnote-def" if is_footnote else "atom-reference-def"
-    label = "脚注定义" if is_footnote else "引用定义"
     return _atom(kind, block.raw,
                  f'<div class="atom-label">{label}</div>'
                  f'<pre>{_html.escape(raw)}</pre>')
@@ -227,6 +247,24 @@ def _resolve_relative_images(html: str, doc_base: str | None) -> str:
     return pattern.sub(replace, html)
 
 
+# ATX heading carrying an authored id:  "# Title {#custom}" / "{: #custom}".
+_HEADING_ATTR_ID_RE = re.compile(
+    r"^[ \t]{0,3}#{1,6}[ \t]+.*?\{:?[ \t]*#([A-Za-z0-9_-]+)[^}]*\}[ \t]*$"
+)
+
+
+def _heading_attr_id(raw: str) -> str | None:
+    match = _HEADING_ATTR_ID_RE.match(raw.rstrip())
+    return match.group(1) if match else None
+
+
+def _with_heading_attr_id(markup: str, attr_id: str) -> str:
+    safe = _html.escape(attr_id, quote=True)
+    return re.sub(r"^(<h[1-6]\b)",
+                  lambda m: f'{m.group(1)} data-md-attr-id="{safe}"',
+                  markup, count=1)
+
+
 def surface_html(text: str, doc_base: str | None = None) -> str:
     """Render the whole document as flat HTML for the continuous surface.
 
@@ -284,11 +322,18 @@ def surface_html(text: str, doc_base: str | None = None) -> str:
         if markup is None:
             markup = _render_block(block)
         if block.type == "heading" and toc is not None:
+            # TOC mode reassigns every heading id from one parser context;
+            # authored ids cannot be distinguished there, so drop them.
+            markup = re.sub(r'\s+data-md-attr-id="[^"]*"', "", markup, count=1)
             if heading_index < len(heading_ids):
                 markup = re.sub(r'\s+id="[^"]*"', "", markup, count=1)
                 markup = re.sub(r"^(<h[1-6])", lambda m: m.group(1) +
                                 f' id="{_html.escape(heading_ids[heading_index], quote=True)}"', markup)
             heading_index += 1
+        elif block.type == "heading":
+            attr_id = _heading_attr_id(block.raw)
+            if attr_id and "data-md-attr-id=" not in markup:
+                markup = _with_heading_attr_id(markup, attr_id)
         parts.append(_tag_model_index(markup, i))
         # Blank paragraphs between this block and the next.
         if i + 1 < len(blocks):

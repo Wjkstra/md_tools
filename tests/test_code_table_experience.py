@@ -20,20 +20,40 @@ class CodeTableExperienceTests(unittest.TestCase):
 
     def code_focus(self, start=None, end=None):
         self.view.setFocus()
-        start = self.js("document.querySelector('.md-code-area').textContent.length") if start is None else start
-        self.js("(()=>{const a=document.querySelector('.md-code-area');a.focus();"
-                f"App.selectOffsets(a,{start},{start if end is None else end});" + "})()")
+        area = "document.querySelector('.md-code-area')"
+        start = self.js(f"{area}.textContent.length") if start is None else start
+        want_end = start if end is None else end
+        self.js(f"(()=>{{const a={area};a.focus();App.selectOffsets(a,{start},{want_end});}})()")
+        # Wait for real activation and the requested selection instead of a
+        # fixed 30 ms sleep: focusProxy delivery was the flaky step.
+        self.wait(lambda: self.js(f"document.activeElement==={area}"))
+        self.wait(lambda: self.js(
+            f"(()=>{{const o=App.offsets({area});return o.start==={start}&&o.end==={want_end};}})()"))
 
     def code_text(self):
         return self.js("document.querySelector('.md-code-area').textContent")
 
+    def _await_input(self, before):
+        # Keys that only move the caret (e.g. skipping an auto-paired quote)
+        # fire no input event; bound the wait so they still return promptly.
+        import time
+        deadline = time.monotonic() + 0.25
+        while time.monotonic() < deadline:
+            self.app.processEvents()
+            if (self.js("window.__mdLastInput||0") or 0) > before:
+                return
+            time.sleep(.002)
+        QTest.qWait(10)
+
     def key(self, key, modifiers=Qt.KeyboardModifier.NoModifier):
+        before = self.js("window.__mdLastInput||0") or 0
         QTest.keyClick(self.view.focusProxy() or self.view, key, modifiers)
-        QTest.qWait(30)
+        self._await_input(before)
 
     def type(self, text):
+        before = self.js("window.__mdLastInput||0") or 0
         QTest.keyClicks(self.view.focusProxy() or self.view, text)
-        QTest.qWait(30)
+        self._await_input(before)
 
     def test_fences_hidden_literal_body_and_safe_highlight(self):
         body = '#include <stdio.h>\nprintf("**literal**");'

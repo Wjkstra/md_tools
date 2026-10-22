@@ -65,6 +65,25 @@ TABLE_DELIM_RE = re.compile(
 HTML_START_RE = re.compile(
     r"^\s*<(?:!--|!DOCTYPE|\?|/?[A-Za-z][\w:-]*(?:\s|/?>))", re.IGNORECASE
 )
+INDENTED_RE = re.compile(r"^(?: {4}|\t)")
+
+
+def _is_interrupting_block(line: str, *, inside_quote: bool = False) -> bool:
+    """A line that starts a new block instead of lazily continuing one.
+
+    Mirrors the blocks the product parser (Python-Markdown) lets interrupt a
+    paragraph/quote/list. A list/quote marker never interrupts a quote (it is
+    parsed as lazy quote text), and a thematic-break-looking line after a quote
+    line is parsed as a setext heading together with that line, so it is part
+    of the quote rather than an interrupt.
+    """
+    if FENCE_RE.match(line) or MATH_LINE_RE.match(line) or HTML_START_RE.match(line):
+        return True
+    if HEADING_RE.match(line):
+        return True
+    if not inside_quote and (HR_RE.match(line) or HR_SINGLE_RE.match(line)):
+        return True
+    return False
 
 
 def _fnv1a(s: str) -> str:
@@ -158,6 +177,24 @@ def build_model(text: str) -> DocModel:
             cursor = close
             continue
 
+        if INDENTED_RE.match(line) and not is_blank(cursor):
+            # Indented code block (4 spaces / tab). Blank lines in the middle
+            # stay part of the block only when another indented line follows.
+            j = cursor + 1
+            while j < n:
+                if not is_blank(j) and INDENTED_RE.match(line_texts[j]):
+                    j += 1
+                    continue
+                if is_blank(j):
+                    k = next_non_blank(j)
+                    if k < n and not is_blank(k) and INDENTED_RE.match(line_texts[k]):
+                        j = k + 1
+                        continue
+                break
+            ranges.append((cursor, j, "code", None, None))
+            cursor = j
+            continue
+
         if MATH_INLINE_LINE_RE.match(line):
             ranges.append((cursor, cursor + 1, "math", None, None))
             cursor += 1
@@ -198,8 +235,12 @@ def build_model(text: str) -> DocModel:
                         j += 1
                     else:
                         break
-                else:
+                elif _is_interrupting_block(line_texts[j], inside_quote=True):
                     break
+                else:
+                    # Lazy continuation: a non-quote, non-block-start line is
+                    # still part of the quote paragraph.
+                    j += 1
             ranges.append((cursor, j, "blockquote", None, None))
             cursor = j
             continue
@@ -210,6 +251,10 @@ def build_model(text: str) -> DocModel:
                 if LIST_RE.match(line_texts[j]):
                     j += 1
                     continue
+                if QUOTE_RE.match(line_texts[j]):
+                    # A quote marker right after an item nests inside it.
+                    j += 1
+                    continue
                 if re.match(r"^\s+\S", line_texts[j]):
                     j += 1
                     continue
@@ -217,12 +262,16 @@ def build_model(text: str) -> DocModel:
                     k = next_non_blank(j)
                     if k < n and (
                         LIST_RE.match(line_texts[k])
+                        or QUOTE_RE.match(line_texts[k])
                         or re.match(r"^\s+\S", line_texts[k])
                     ):
                         j += 1
                         continue
                     break
-                break
+                if _is_interrupting_block(line_texts[j]):
+                    break
+                # Lazy continuation line of the item paragraph.
+                j += 1
             ranges.append((cursor, j, "list", None, None))
             cursor = j
             continue

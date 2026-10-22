@@ -238,5 +238,60 @@ test("link and image titles survive serialization", () => {
 
 test("a soft-break list marker stays text inside the current item", () => {
   const list = h("ol", {}, h("li", {}, "body", h("br"), "\n- literal marker"));
-  assert.equal(md(root(list)), "1. body\n    \\- literal marker");
+  // Lazy continuation: no indentation needed for paragraph text, and the
+  // escaped marker keeps it from becoming a nested list.
+  assert.equal(md(root(list)), "1. body\n\\- literal marker");
+});
+
+// --- 2026-10-22 review regressions -------------------------------------
+
+test("plain text holding decoded Markdown punctuation stays literal", () => {
+  assert.equal(md(root(h("p", {}, "Text *literal* end"))),
+    "Text \\*literal\\* end");
+  assert.equal(md(root(h("p", {}, "Text [site](https://x.invalid/) end"))),
+    "Text \\[site\\](https://x.invalid/) end");
+  assert.equal(md(root(h("p", {}, "snake_case and * emphasis stays"))),
+    "snake_case and \\* emphasis stays");
+  assert.equal(md(root(h("p", {}, "a \\xb path", h("strong", {}, "b")))),
+    "a \\xb path**b**");
+});
+
+test("image alt brackets and parens in destinations are protected", () => {
+  assert.equal(md(root(h("p", {}, h("img", { alt: "a]b", src: "x.png" })))),
+    "![a\\]b](x.png)");
+  assert.equal(md(root(h("p", {}, h("img", { alt: "photo", src: "assets/a(b.png" })))),
+    "![photo](<assets/a(b.png>)");
+  assert.equal(md(root(h("p", {}, h("img", { alt: "photo", src: "a b.png" })))),
+    "![photo](<a b.png>)");
+  // Balanced parens stay bare; they are legal CommonMark destinations.
+  assert.equal(md(root(h("p", {}, h("img", { alt: "x", src: "a(b).png" })))),
+    "![x](a(b).png)");
+  assert.equal(md(root(h("p", {}, h("a", { href: "https://x.invalid/a(b" }, "s")))),
+    "[s](<https://x.invalid/a(b>)");
+});
+
+test("inline HTML mark/sup and authored heading ids survive", () => {
+  assert.equal(md(root(h("p", {},
+    "Text ", h("mark", {}, "highlight"), " and ", h("sup", {}, "2"), " end"))),
+    "Text <mark>highlight</mark> and <sup>2</sup> end");
+  assert.equal(md(root(h("h1", { "data-md-attr-id": "custom" }, "Heading"))),
+    "# Heading {#custom}");
+});
+
+test("rendered indented code keeps embedded fences, also inside lists", () => {
+  const pre = h("pre", {}, h("code", {}, "```\ninner\n```\n"));
+  assert.equal(md(root(h("div", { class: "codehilite" }, pre))),
+    "    ```\n    inner\n    ```");
+  const list = h("ul", {},
+    h("li", {}, h("p", {}, "parent"), h("div", {}, pre)),
+    h("li", {}, h("p", {}, "sibling")));
+  assert.equal(md(root(list)), [
+    "- parent",
+    "",
+    "        ```",
+    "        inner",
+    "        ```",
+    "",
+    "- sibling",
+  ].join("\n"));
 });

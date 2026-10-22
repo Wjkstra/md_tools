@@ -179,6 +179,34 @@ def _atomic_output(path: str, writer) -> None:
         temporary.unlink(missing_ok=True)
 
 
+# Cleanup closures still holding a TemporaryDirectory after Windows sharing
+# violations; module-level so retries outlive the finished export job.
+_PENDING_TEMP_CLEANUPS: set = set()
+
+
+def _retry_tempdir_cleanup(temp_dir, attempts: int = 12, delay_ms: int = 250) -> None:
+    """Delete a capture temp directory after Chromium releases its files.
+
+    On Windows the rendered document.html can stay locked right after
+    deleteLater(). Retry briefly instead of letting the error swallow the
+    finished signal; after the last attempt leave the (empty) directory for
+    the OS temp cleanup rather than raising into Qt.
+    """
+    def attempt(remaining: int) -> None:
+        try:
+            temp_dir.cleanup()
+            _PENDING_TEMP_CLEANUPS.discard(handle)
+        except OSError:
+            remaining -= 1
+            if remaining > 0:
+                QTimer.singleShot(delay_ms, lambda: attempt(remaining))
+            else:
+                _PENDING_TEMP_CLEANUPS.discard(handle)
+    handle = (object(), attempt)
+    _PENDING_TEMP_CLEANUPS.add(handle)
+    QTimer.singleShot(0, lambda: attempt(attempts))
+
+
 class RenderExportJob(QObject):
     """Own a complete export document until render/write completion or timeout."""
     finished = Signal(bool, str)
@@ -338,14 +366,17 @@ class RenderExportJob(QObject):
         self._done = True
         self._timer.stop()
         self._poll.stop()
-        if self._view is not None:
-            self._view.close()
-            self._view.deleteLater()
-            self._view = None
-        if self._temporary is not None:
-            self._temporary.cleanup()
-            self._temporary = None
+        # Notify terminal state exactly once and BEFORE releasing the page /
+        # temp directory: a sharing violation during cleanup must never swallow
+        # the signal (the job set in the main window would leak otherwise).
+        view, self._view = self._view, None
+        temporary, self._temporary = self._temporary, None
         self.finished.emit(ok, message)
+        if view is not None:
+            view.close()
+            view.deleteLater()
+        if temporary is not None:
+            _retry_tempdir_cleanup(temporary)
 
 
 def export_pdf(text: str, path: str, *, doc_base: str | None = None,
