@@ -1,6 +1,6 @@
 {
-  "version": "0.3.9",
-  "notes": "本次更新内容：\n\n- 修复按 Ctrl+数字设置标题后立即使用拼音输入法，前几个字母会以英文直接上屏的问题\n- 修复标题行回车后新行无法用 Ctrl+数字设置标题的问题；现在标题内回车会拆分为标题与正文段落（行首回车插入正文行，空标题回车恢复正文）\n- 修复反复删除、新建标题后快捷键和 \"#\" 语法可能失效的问题\n- 新增：选中多个段落后按 Ctrl+数字，可统一设置为对应级别标题\n- 修复部分 Windows 设备安装后启动报错 \"DLL load failed while importing QtGui\" 的问题（0.3.8 已修复，本版包含）",
-  "url": "https://github.com/Wjkstra/md_tools/releases/download/v0.3.9/MdNote-Setup-0.3.9.exe",
-  "sha256": "2956ea6fe27373d447e2ae02c61a1ae65d89e46204b72e188536cfefa78834ef"
+  "version": "0.3.10",
+  "notes": "本次更新内容：\n\n- 代码块语言选择升级：内置 130 种语言 / 格式预设，支持别名与中文关键词搜索（例如输入「架构」可找到 Mermaid）、方向键选择；完整列表可向上展开，不再被窗口边缘裁剪\n- 新增围栏联想：正文中输入三个反引号即显示语言建议，鼠标点击或方向键 + 回车直接插入带语言的代码块\n- Mermaid 图表支持点击直接编辑源码并实时预览，点击外部、按 Esc 或 Ctrl+Enter 恢复图表，无需切换整篇源码模式；源码语法有误时在预览区直接提示\n- PlantUML、Graphviz / DOT、D2 等新增为图表源码格式预设\n- 修复部分围栏语言名无法语法高亮的问题（Cassandra、MariaDB、MongoDB、数学公式、Svelte、JSONC 等）\n- 复制代码时不再抢占焦点或改变编辑器选区",
+  "url": "https://github.com/Wjkstra/md_tools/releases/download/v0.3.10/MdNote-Setup-0.3.10.exe",
+  "sha256": "80e961fa78a53acf9ea435097d06e166020cb32b627b308a5818c9db1b9da574"
 }
