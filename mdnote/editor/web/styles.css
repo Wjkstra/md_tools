@@ -311,7 +311,8 @@ html, body { min-height: 100%; border: 0; outline: 0; box-shadow: none; }
 #doc, #doc:focus, .md-code, .md-code-area, .md-code-area:focus {
   border: 0; outline: 0; box-shadow: none;
 }
-.md-code { padding: 0; overflow: hidden; }
+.md-code { padding: 0; overflow: visible; }
+.md-code.language-picker-open { z-index: 65; }
 .md-code-lang { display: none; }
 .md-code-tools {
   display: flex; align-items: center; gap: 12px; padding: 8px 16px;
@@ -321,21 +322,30 @@ html, body { min-height: 100%; border: 0; outline: 0; box-shadow: none; }
   color: var(--text-secondary); background: var(--codehilite-bg);
   border: 1px solid var(--border); border-radius: 4px; font: inherit; padding: 2px 8px;
 }
-input.md-code-language { cursor: text; min-width: 92px; }
+input.md-code-language { cursor: text; width: 154px; max-width: 100%; padding-right: 24px; }
 .md-code-language:focus-visible, .md-code-tools button:focus-visible { outline: 1px solid var(--accent); }
 .md-code-lang-picker { position: relative; }
+.md-code-lang-picker::after {
+  content: '⌄'; position: absolute; right: 8px; top: 1px; pointer-events: none;
+  color: var(--text-secondary);
+}
 .md-code-lang-list {
   position: absolute; top: calc(100% + 2px); left: 0; z-index: 60;
-  min-width: 150px; max-height: 240px; overflow-y: auto;
+  width: min(310px, calc(100vw - 72px)); max-height: 288px; overflow-y: auto;
+  overscroll-behavior: contain;
   background: var(--bg); border: 1px solid var(--border); border-radius: 6px;
   box-shadow: 0 6px 20px rgba(0,0,0,.18); padding: 4px;
 }
-.md-code-lang-item {
-  display: block; width: 100%; text-align: left;
+.md-code-lang-list.opens-up { top: auto; bottom: calc(100% + 4px); }
+.md-code-tools .md-code-lang-item, .md-fence-lang-list .md-code-lang-item {
+  display: flex; align-items: center; gap: 10px; width: 100%; text-align: left;
   color: var(--text); background: none; border: 0; border-radius: 4px;
-  font: 12px/1.8 system-ui, sans-serif; padding: 2px 10px; cursor: pointer;
+  font: 13px/1.8 system-ui, sans-serif; padding: 5px 10px; cursor: pointer;
 }
-.md-code-lang-item:hover, .md-code-lang-item:focus { background: var(--code-bg); color: var(--accent); }
+.md-code-lang-icon { flex: 0 0 18px; color: var(--accent); font: 600 14px/1 Consolas, monospace; text-align: center; }
+.md-code-lang-empty { padding: 10px; font-size: 12px; }
+.md-fence-lang-list { position: fixed; z-index: 100; }
+.md-code-lang-item:hover, .md-code-lang-item[aria-selected="true"] { background: var(--code-bg); color: var(--accent); }
 .md-code-hint { margin-left: auto; opacity: .7; }
 .md-code-tools button { cursor: pointer; }
 .md-code-tools button:hover { color: var(--accent); background: var(--code-bg); }
@@ -369,6 +379,14 @@ body[data-theme="monokai"] .md-code-highlight .s, body[data-theme="monokai"] .md
 }
 
 .md-code-highlight code { background: none; padding: 0; font: inherit; color: inherit; }
+
+.md-diagram-preview { padding: 16px; margin: 0; text-align: center; overflow: auto; cursor: text; }
+.md-diagram-preview svg { display: block; margin: 0 auto; max-width: 100%; height: auto; }
+.md-diagram-preview:focus-visible { outline: 1px solid var(--accent); outline-offset: -4px; }
+.md-code:not(.has-diagram) .md-diagram-preview { display: none; }
+.diagram-preview-only:not(.diagram-invalid) .md-code-scroll { display: none; }
+.is-diagram-editing .md-diagram-preview { border-top: 1px solid var(--border); }
+.diagram-error { white-space: pre-wrap; text-align: left; font: 12px/1.6 system-ui, sans-serif; }
 
 /* 标题行首浮动 H[x] 提示 */
 #heading-hint {

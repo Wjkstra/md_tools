@@ -4,14 +4,73 @@
   else root.CodeEditing = factory();
 })(typeof globalThis !== 'undefined' ? globalThis : this, function() {
   'use strict';
-  const languages = [['', '纯文本'], ['c','C'], ['cpp','C++'], ['python','Python'],
-    ['javascript','JavaScript'], ['typescript','TypeScript'], ['json','JSON'],
-    ['html','HTML'], ['css','CSS'], ['java','Java'], ['csharp','C#'],
-    ['go','Go'], ['rust','Rust'], ['bash','Shell'], ['sql','SQL']];
+  // Stable Markdown fence names. Other/custom lexer names remain valid input.
+  // Diagram presets describe source-only formats explicitly; Mermaid renders offline.
+  const languages = [['', '纯文本'],
+    ['actionscript','ActionScript'], ['ada','Ada'], ['apacheconf','Apache'],
+    ['applescript','AppleScript'], ['arduino','Arduino'], ['asm','Assembly'],
+    ['awk','AWK'], ['bash','Bash / Shell'], ['bat','Batch / CMD'], ['bibtex','BibTeX'], ['bicep','Bicep'],
+    ['c','C'], ['csharp','C#'], ['cpp','C++'], ['cassandra','Cassandra CQL'],
+    ['ceylon','Ceylon'], ['clojure','Clojure'], ['cmake','CMake'], ['cobol','COBOL'],
+    ['coffee-script','CoffeeScript'], ['common-lisp','Common Lisp'], ['coq','Coq'],
+    ['css','CSS'], ['cuda','CUDA'], ['cypher','Cypher / Neo4j'],
+    ['d','D'], ['d2','D2 · 图表源码'], ['dart','Dart'], ['diff','Diff / Patch'],
+    ['django','Django / Jinja'], ['docker','Dockerfile'], ['dosini','INI'],
+    ['elixir','Elixir'], ['elm','Elm'], ['erlang','Erlang'], ['fsharp','F#'],
+    ['fish','Fish Shell'], ['fortran','Fortran'], ['gherkin','Gherkin'], ['glsl','GLSL'], ['go','Go'],
+    ['graphql','GraphQL'], ['groovy','Groovy'], ['haskell','Haskell'],
+    ['haxe','Haxe'], ['hcl','HCL / Terraform'], ['html','HTML'], ['http','HTTP'],
+    ['java','Java'], ['javascript','JavaScript'], ['json','JSON'], ['json5','JSON5'], ['jsonc','JSON with Comments'],
+    ['jsx','JSX / React'], ['julia','Julia'], ['kotlin','Kotlin'], ['latex','LaTeX / TeX'],
+    ['less','Less'], ['llvm','LLVM'], ['log','Log / 日志'], ['lua','Lua'], ['makefile','Makefile'],
+    ['mariadb','MariaDB'], ['markdown','Markdown'], ['math','Math · 公式源码'],
+    ['mathematica','Mathematica / Wolfram'], ['matlab','MATLAB'],
+    ['mermaid','Mermaid · 流程图 / UML / 架构图'], ['meson','Meson'],
+    ['mongodb','MongoDB'], ['mysql','MySQL'], ['nasm','NASM'], ['nginx','Nginx'], ['nim','Nim'],
+    ['nix','Nix'], ['nomnoml','Nomnoml · UML 源码'], ['objective-c','Objective-C'],
+    ['ocaml','OCaml'], ['octave','Octave'], ['pascal','Pascal / Delphi'],
+    ['perl','Perl'], ['php','PHP'], ['plantuml','PlantUML · UML 源码'],
+    ['plpgsql','PL/pgSQL'], ['postgresql','PostgreSQL'], ['powershell','PowerShell'],
+    ['prolog','Prolog'], ['properties','Properties'], ['protobuf','Protocol Buffers'],
+    ['pug','Pug / Jade'], ['python','Python'], ['r','R'], ['racket','Racket'],
+    ['raku','Raku / Perl 6'], ['regex','Regular Expression'], ['robotframework','Robot Framework'],
+    ['rst','reStructuredText'], ['ruby','Ruby'], ['rust','Rust'], ['sas','SAS'],
+    ['sass','Sass'], ['scala','Scala'], ['scheme','Scheme'],
+    ['scss','SCSS'], ['smalltalk','Smalltalk'], ['solidity','Solidity'],
+    ['sparql','SPARQL'], ['sql','SQL'], ['sqlite3','SQLite'], ['stata','Stata'], ['svelte','Svelte'],
+    ['swift','Swift'], ['tcl','Tcl'], ['toml','TOML'], ['tsql','T-SQL / SQL Server'], ['tsx','TSX / React'],
+    ['turtle','Turtle / RDF'],
+    ['typescript','TypeScript'], ['vala','Vala'], ['vb.net','Visual Basic .NET'],
+    ['vbscript','VBScript'], ['verilog','Verilog / SystemVerilog'], ['vhdl','VHDL'], ['vim','Vim Script'],
+    ['vue','Vue'], ['xml','XML / SVG'], ['yaml','YAML'], ['zig','Zig'],
+    ['dot','Graphviz / DOT · 图表源码']];
   const aliases = {py:'python', js:'javascript', ts:'typescript', 'c++':'cpp',
-    'c#':'csharp', cs:'csharp', sh:'bash', shell:'bash', text:'', plaintext:''};
+    'c#':'csharp', cs:'csharp', sh:'bash', shell:'bash', text:'', plaintext:'', txt:'',
+    md:'markdown', yml:'yaml', 'dockerfile':'docker', 'docker-compose':'yaml',
+    k8s:'yaml', kubernetes:'yaml', tf:'hcl', terraform:'hcl', ps1:'powershell',
+    pwsh:'powershell', cmd:'bat', rb:'ruby', rs:'rust', golang:'go', kt:'kotlin',
+    tex:'latex', uml:'plantuml', puml:'plantuml', graphviz:'dot', cql:'cassandra',
+    svg:'xml', proto:'protobuf', 'f#':'fsharp', objc:'objective-c',
+    mdx:'markdown', zsh:'bash', console:'bash', 'c++11':'cpp', 'c++17':'cpp',
+    'c++20':'cpp', 'c++23':'cpp', 'visual-basic':'vb.net', psql:'postgresql',
+    sqlite:'sqlite3', sqlserver:'tsql', gql:'graphql', 'react':'jsx'};
+  const aliasEntries=Object.entries(aliases);
   const pairs = {'(':')','[':']','{':'}','"':'"', "'":"'", '\u0060':'\u0060'};
-  function language(lang) { lang=(lang||'').toLowerCase(); return aliases[lang] ?? lang; }
+  function language(lang) { lang=(lang||'').trim().toLowerCase(); return aliases[lang] ?? lang; }
+  function suggestions(query) {
+    const q=(query||'').trim().toLowerCase(), normalized=language(q);
+    const rank=([value,label])=> {
+      const words=label.toLowerCase();
+      if(q && (value===q || value===normalized || words===q)) return 0;
+      if(value.startsWith(q) || words.startsWith(q)) return 1;
+      if(aliasEntries.some(([alias,target])=>target===value && alias.startsWith(q))) return 2;
+      return value.includes(q)||words.includes(q)?3:4;
+    };
+    return languages.map(entry=>({entry,score:q?rank(entry):0}))
+      .filter(({score})=>score<4)
+      .sort((a,b)=>a.score-b.score||a.entry[0].localeCompare(b.entry[0]))
+      .map(({entry})=>entry);
+  }
   function unit(lang, fallback) {
     return ' '.repeat(['c','cpp','python','java','csharp','rust','go'].includes(language(lang))
       ? 4 : ['javascript','typescript','json','html','css'].includes(language(lang)) ? 2 : fallback || 2);
@@ -77,5 +136,5 @@
     return {start,end,text:char+selected+pairs[char],caret:start+1,
       selectionEnd:selected?start+1+selected.length:undefined};
   }
-  return {languages,language,unit,context,newline,tab,pair,pairs};
+  return {languages,language,suggestions,unit,context,newline,tab,pair,pairs};
 });

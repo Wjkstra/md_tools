@@ -3,7 +3,7 @@
 // The whole document lives in one contenteditable surface (#doc), so the native
 // caret/selection can cross headings/paragraphs/lists/quotes/tables: blank lines,
 // Ctrl+A and multi-paragraph selection just work. Code has a persistent editor
-// with a separate highlight mirror. Complex blocks (Mermaid, math, front matter)
+// with a separate highlight mirror and live Mermaid preview. Complex blocks (math, front matter)
 // are atoms with an inline source editor. After any edit the surface is converted
 // back to Markdown via HtmlToMd and pushed to Python.
 "use strict";
@@ -61,6 +61,12 @@ const App = {
   // though they live inside a contenteditable surface (where normal clicks
   // only place the caret and never toggle the input).
   onMouseDown(event) {
+    if (this.languagePicker && !this.languagePicker.contains(event.target)) {
+      this.languagePicker.close();
+    }
+    document.querySelectorAll(".atom-diagram.is-diagram-editing").forEach(block=>{
+      if (!block.contains(event.target)) this.setDiagramEditing(block,false);
+    });
     const cb = event.target.closest && event.target.closest("input.task-checkbox");
     if (cb && document.getElementById("doc").contains(cb)) {
       event.preventDefault();
@@ -95,6 +101,8 @@ const App = {
     });
   },
   updateHeadingHint() {
+    if(this.fenceCompletion && this.selectionElement()?.closest("p")!==this.fenceCompletion.paragraph)
+      this.fenceCompletion.menu.close();
     const el = this.ensureHint();
     const selection = getSelection();
     if (!selection.rangeCount || this.editingAtom()) { el.hidden = true; return; }
@@ -138,6 +146,7 @@ const App = {
 
   onBeforeInput(event) {
     if (event.isComposing || !document.getElementById("doc").contains(event.target)) return;
+    if(event.target.closest?.(".md-code-tools")) return;
     const codeArea=event.target.closest?.(".md-code-area")||this.selectionElement()?.closest(".md-code-area");
     if(codeArea) {
       if(window.__autoBracket && event.inputType==="insertText" && event.data) {
@@ -195,6 +204,7 @@ const App = {
 
   loadSurface() {
     this.surfaceReady = false;
+    this.languagePicker?.close();
     // The rebuild replaces every atom element; any lingering edit reference
     // pointed at a detached node and would otherwise swallow later input.
     this.activeAtom = null;
@@ -241,7 +251,6 @@ const App = {
       cb.removeAttribute("disabled");
       cb.setAttribute("tabindex", "-1");
     });
-    this.renderDiagrams();
     this.renderMath();
     this.updateHeadingHint();
   },
@@ -336,6 +345,7 @@ const App = {
   },
 
   onInput(event) {
+    if(event?.target.closest?.(".md-code-tools")) return;
     const area=event?.target.closest?.(".md-code-area");
     if(area) {
       this.refreshCode(area.closest(".md-code"));
@@ -358,6 +368,7 @@ const App = {
     if (event.isComposing) return;
     // Convert immediately (synchronous) so markers never linger.
     this.formatCurrentBlock(event.data);
+    this.updateFenceSuggestions();
     this.scheduleHint();
   },
 
@@ -686,6 +697,14 @@ const App = {
   // ------------------------------------------------ atoms ------------------
 
   onClick(event) {
+    const preview=event.target.closest?.(".md-diagram-preview");
+    if(preview) {
+      event.preventDefault();
+      const block=preview.closest(".md-code");
+      this.setDiagramEditing(block,true);
+      block.querySelector(".md-code-area").focus();
+      return;
+    }
     const link = event.target.closest?.("a[href]");
     if (link) {
       event.preventDefault();
@@ -744,6 +763,64 @@ const App = {
 
   // ---------------- code editing ----------------
 
+  languageOption(value,label) {
+    const item=document.createElement("button");item.type="button";
+    item.className="md-code-lang-item";item.dataset.value=value;
+    item.setAttribute("role","option");item.tabIndex=-1;
+    const icon=document.createElement("span");icon.className="md-code-lang-icon";
+    icon.setAttribute("aria-hidden","true");
+    icon.textContent=['mermaid','plantuml','dot','d2','nomnoml'].includes(value)?"◇":
+      ['json','json5','yaml','toml','sql','mysql','mariadb','postgresql','sqlite3','mongodb','cassandra'].includes(value)?"▤":"‹›";
+    const name=document.createElement("span");name.textContent=label;item.append(icon,name);
+    return item;
+  },
+
+  updateFenceSuggestions() {
+    const paragraph=this.selectionElement()?.closest("p");
+    const match=paragraph && !paragraph.closest(".md-code,table,.md-atom") &&
+      paragraph.textContent.match(/([\s\S]*?)(\x60{3,}|~{3,})([\w+#.-]*)$/);
+    if(!match || this.textOffset(paragraph)!==paragraph.textContent.length) {
+      this.fenceCompletion?.menu.close();return;
+    }
+    this.languagePicker?.close();
+    const menu=document.createElement("div");
+    menu.className="md-code-lang-list md-fence-lang-list";menu.setAttribute("role","listbox");
+    menu.setAttribute("aria-label","代码块语言建议");
+    const state={paragraph,match,menu,active:-1};
+    menu.close=()=>{
+      menu.remove();if(this.fenceCompletion===state) this.fenceCompletion=null;
+      if(this.languagePicker===menu) this.languagePicker=null;
+    };
+    this.languagePicker=menu;this.fenceCompletion=state;
+    CodeEditing.suggestions(match[3]).forEach(([value,label])=>{
+      const item=this.languageOption(value,label);
+      item.addEventListener("mousedown",event=>{
+        event.preventDefault();menu.close();this.insertFenceCode(paragraph,match,value);
+      });
+      menu.append(item);
+    });
+    if(!menu.children.length) {menu.close();return;}
+    document.body.append(menu);
+    const range=getSelection().getRangeAt(0).cloneRange();range.collapse(false);
+    const rect=range.getBoundingClientRect(), fallback=paragraph.getBoundingClientRect();
+    const top=rect.height?rect.bottom:fallback.bottom;
+    menu.style.left=Math.max(8,Math.min(rect.height?rect.left:fallback.left,innerWidth-menu.offsetWidth-12))+"px";
+    const below=innerHeight-top-12, above=(rect.height?rect.top:fallback.top)-12;
+    menu.style.maxHeight=Math.min(288,Math.max(80,above>below&&below<240?above:below))+"px";
+    menu.style.top=(below<240&&above>below?Math.max(8,top-menu.offsetHeight-(rect.height||24)-4):top+4)+"px";
+  },
+
+  insertFenceCode(paragraph,match,language) {
+    const range=document.createRange();
+    if(match[1]) {
+      const start=this.caretRange(paragraph,match[1].length);
+      const tail=this.caretRange(paragraph,paragraph.textContent.length);
+      range.setStart(start.startContainer,start.startOffset);
+      range.setEnd(tail.startContainer,tail.startOffset);
+    } else range.selectNode(paragraph);
+    const selection=getSelection();selection.removeAllRanges();selection.addRange(range);
+    this.insertMarkdown(match[2]+language+"\n\n"+match[2]);
+  },
 
   selectionElement() {
     const node = getSelection().anchorNode;
@@ -788,31 +865,121 @@ const App = {
       block.classList.toggle("has-line-numbers",!!window.__codeLineNumbers);
       block.style.setProperty("--tab-size",window.__tabSize||2);
     });
-    // Re-evaluate Mermaid blocks when the diagram preference changes.
-    document.querySelectorAll(".atom-diagram").forEach((atom)=>{
-      if (window.__mermaid === false) {
-        atom.dataset.rendered = "off";
-        atom.querySelector("svg")?.remove();
-      } else if (atom.dataset.rendered === "off") {
-        atom.dataset.rendered = ""; // allow renderDiagrams to run again
-      }
-    });
-    if (window.__mermaid !== false) this.renderDiagrams();
+    this.renderDiagrams();
   },
 
   renderDiagrams() {
-    document.querySelectorAll(".atom-diagram").forEach((atom) => {
-      if (window.__mermaid === false || atom.dataset.rendered === "1") return;
-      if (window.mermaid && atom.querySelector(".mermaid")) {
-        atom.dataset.rendered = "1";
-        try {
-          window.mermaid.initialize({ startOnLoad: false, securityLevel: "strict",
-            theme: "neutral" });
-          const result = window.mermaid.run({ nodes: [atom.querySelector(".mermaid")] });
-          if (result && result.catch) result.catch(() => {});
-        } catch (e) { /* keep source visible */ }
+    document.querySelectorAll(".md-code").forEach(block=>this.refreshDiagram(block));
+  },
+
+  setDiagramEditing(block, editing) {
+    block.classList.toggle("is-diagram-editing",editing);
+    block.classList.toggle("diagram-preview-only",!editing);
+    if(block._diagramToggle) {
+      block._diagramToggle.textContent=editing?"预览图表":"编辑源码";
+      block._diagramToggle.setAttribute("aria-expanded",String(editing));
+    }
+    if(!editing) this.refreshDiagram(block,true);
+  },
+
+  refreshDiagram(block, immediate=false) {
+    const enabled=CodeEditing.language(block.dataset.lang)==="mermaid" && window.__mermaid!==false;
+    block.classList.toggle("atom-diagram",CodeEditing.language(block.dataset.lang)==="mermaid");
+    block.classList.toggle("has-diagram",enabled);
+    if(!enabled) {
+      clearTimeout(block._diagramTimer);
+      block._diagramRevision=(block._diagramRevision||0)+1;
+      block._diagramSource=null;
+      block._diagramPreview?.replaceChildren();
+      block.classList.remove("diagram-preview-only","is-diagram-editing","diagram-invalid");
+      if(block._diagramToggle) block._diagramToggle.hidden=true;
+      return;
+    }
+    if(!block._diagramPreview) {
+      const preview=document.createElement("div");
+      preview.className="md-diagram-preview mermaid";
+      preview.setAttribute("role","button");preview.tabIndex=0;
+      preview.setAttribute("aria-label","Mermaid 图表，点击编辑源码");
+      preview.addEventListener("keydown",event=>{
+        if(event.key==="Enter"||event.key===" ") {
+          event.preventDefault();event.stopPropagation();preview.click();
+        }
+      });
+      block.append(preview);block._diagramPreview=preview;
+      const toggle=document.createElement("button");
+      toggle.type="button";toggle.className="md-diagram-toggle";
+      toggle.addEventListener("mousedown",event=>event.preventDefault());
+      toggle.addEventListener("click",()=>{
+        const editing=!block.classList.contains("is-diagram-editing");
+        this.setDiagramEditing(block,editing);
+        if(editing) block.querySelector(".md-code-area").focus();
+        else {block._diagramPreview.focus();this.pushSurface();}
+      });
+      block.querySelector(".md-code-tools").append(toggle);block._diagramToggle=toggle;
+      block.querySelector(".md-code-area").addEventListener("focus",()=>{
+        if(block.classList.contains("has-diagram")) this.setDiagramEditing(block,true);
+      });
+      block.addEventListener("focusout",()=>setTimeout(()=>{
+        if(block.isConnected && !block.contains(document.activeElement) && block.classList.contains("has-diagram"))
+          this.setDiagramEditing(block,false);
+      },0));
+      // Initialize the view without recursing into the renderer.
+      const editing=block.contains(document.activeElement);
+      block.classList.toggle("is-diagram-editing",editing);
+      block.classList.toggle("diagram-preview-only",!editing);
+      toggle.textContent=editing?"预览图表":"编辑源码";
+      toggle.setAttribute("aria-expanded",String(editing));
+    }
+    block._diagramToggle.hidden=false;
+    const source=HtmlToMd.codeText(block.querySelector(".md-code-area"));
+    if(block._diagramSource===source) {
+      if(immediate && block._diagramTimer) {
+        clearTimeout(block._diagramTimer);block._diagramTimer=null;block._diagramRender?.();
       }
-    });
+      return;
+    }
+    block._diagramSource=source;
+    clearTimeout(block._diagramTimer);
+    const revision=(block._diagramRevision||0)+1;
+    block._diagramRevision=revision;
+    const preview=block._diagramPreview;
+    preview.setAttribute("aria-busy","true");
+    const current=()=>block.isConnected && block._diagramRevision===revision &&
+      block.classList.contains("has-diagram");
+    const showError=message=>{
+      if(!current()) return;
+      preview.replaceChildren();
+      const status=document.createElement("div");
+      status.className="diagram-error";status.setAttribute("role","status");
+      status.textContent=message;preview.append(status);
+      preview.setAttribute("aria-busy","false");block.classList.add("diagram-invalid");
+      block.dataset.rendered="error";
+    };
+    const render=async()=>{
+      block._diagramTimer=null;
+      if(!current()) return;
+      if(!source.trim()) {showError("输入 Mermaid 源码后将在这里显示图表。");return;}
+      if(!window.mermaid) {showError("Mermaid 组件未加载，请重新打开文档。");return;}
+      try {
+        if(!this.mermaidReady) {
+          window.mermaid.initialize({startOnLoad:false,securityLevel:"strict",theme:"neutral",
+            suppressErrorRendering:true});
+          this.mermaidReady=true;
+        }
+        const id="md-diagram-"+(this.diagramSequence=(this.diagramSequence||0)+1);
+        const result=await window.mermaid.render(id,source);
+        if(!current()) return;
+        preview.innerHTML=result.svg;
+        result.bindFunctions?.(preview);
+        block.classList.remove("diagram-invalid");block.dataset.rendered="1";
+        preview.setAttribute("aria-busy","false");
+      } catch(error) {
+        showError("图表语法有误，请修改源码。\n"+String(error?.message||error).slice(0,500));
+      }
+    };
+    block._diagramRender=render;
+    if(immediate) render();
+    else block._diagramTimer=setTimeout(render,350);
   },
 
   setupCode(block) {
@@ -826,76 +993,115 @@ const App = {
     input.type="text";
     input.className="md-code-language";
     input.setAttribute("aria-label","代码语言");
+    input.setAttribute("role","combobox");
+    input.setAttribute("aria-autocomplete","list");
+    input.setAttribute("aria-expanded","false");
     input.spellcheck=false;
     input.autocomplete="off";
     const cur=block.dataset.lang||"";
     input.value=cur;
-    input.placeholder="纯文本";
+    input.placeholder="选择语言…";
     input.title="输入语言（如 c 联想 C/C++/C#），或点击选择";
     const list=document.createElement("div");
     list.className="md-code-lang-list";
+    list.id="code-languages-"+(this.languageSequence=(this.languageSequence||0)+1);
+    list.setAttribute("role","listbox");input.setAttribute("aria-controls",list.id);
     list.hidden=true;
     langWrap.append(input,list);
+
+    const close=()=>{
+      list.hidden=true; input.setAttribute("aria-expanded","false");
+      input.removeAttribute("aria-activedescendant");block.classList.remove("language-picker-open");
+      if(this.languagePicker===langWrap) this.languagePicker=null;
+    };
+    langWrap.close=close;
+    let active=-1;
+    const activate=index=>{
+      const items=[...list.querySelectorAll(".md-code-lang-item")];
+      if(!items.length) return;
+      active=(index+items.length)%items.length;
+      items.forEach((item,i)=>item.setAttribute("aria-selected",String(i===active)));
+      input.setAttribute("aria-activedescendant",items[active].id);
+      items[active].scrollIntoView({block:"nearest"});
+    };
 
     const applyLanguage=(value)=>{
       const normalized=CodeEditing.language(value||"");
       block.dataset.lang=normalized;
       block.querySelector(".md-code-lang").textContent=normalized||"text";
       input.value=normalized;
+      close();
       this.refreshCode(block); this.pushSurface();
     };
     const renderList=(filter)=>{
-      const q=(filter||"").toLowerCase().trim();
-      const matches=CodeEditing.languages
-        .filter(([value,label])=>!q||value.toLowerCase().includes(q)||label.toLowerCase().includes(q))
-        .slice(0,10);
-      if(!matches.length){list.hidden=true;list.innerHTML="";return;}
+      this.languagePicker?.close();this.languagePicker=langWrap;
+      const matches=CodeEditing.suggestions(filter);
       list.innerHTML="";
-      matches.forEach(([value,label])=>{
-        const item=document.createElement("button");
-        item.type="button";
-        item.className="md-code-lang-item";
-        item.textContent=label;
-        item.dataset.value=value;
+      active=-1;
+      matches.forEach(([value,label],index)=>{
+        const item=this.languageOption(value,label);
+        item.id=list.id+"-"+index;
+        item.setAttribute("aria-selected","false");
         // Mouse selection (mousedown fires before the input loses focus).
         item.addEventListener("mousedown",(e)=>{
           e.preventDefault();
           applyLanguage(value);
-          list.hidden=true;
           area.focus();
         });
+        item.addEventListener("click",()=>{applyLanguage(value);area.focus();});
         list.appendChild(item);
       });
+      if(!matches.length) {
+        const empty=document.createElement("div");empty.className="md-code-lang-empty";
+        empty.textContent="无匹配项，按 Enter 使用自定义语言";list.append(empty);
+      }
       list.hidden=false;
+      block.classList.add("language-picker-open");input.setAttribute("aria-expanded","true");
+      const rect=input.getBoundingClientRect(), below=innerHeight-rect.bottom-12, above=rect.top-12;
+      const upwards=below<240 && above>below;
+      list.classList.toggle("opens-up",upwards);
+      list.style.maxHeight=Math.min(288,Math.max(80,upwards?above:below))+"px";
     };
     input.addEventListener("input",()=>renderList(input.value));
-    input.addEventListener("focus",()=>renderList(input.value));
+    input.addEventListener("focus",()=>{input.select();renderList("");});
+    input.addEventListener("click",()=>{if(list.hidden) renderList("");});
+    langWrap.addEventListener("focusout",()=>setTimeout(()=>{
+      if(!langWrap.contains(document.activeElement)) close();
+    },0));
     input.addEventListener("keydown",(e)=>{
+      e.stopPropagation();
+      if(e.isComposing || e.keyCode===229) return;
       if(e.key==="Enter"){
         e.preventDefault();
-        const first=list.querySelector(".md-code-lang-item");
-        applyLanguage(first?first.dataset.value:input.value);
-        list.hidden=true;
+        const items=list.querySelectorAll(".md-code-lang-item");
+        const exact=CodeEditing.languages.find(([value])=>value===CodeEditing.language(input.value));
+        applyLanguage(active>=0?items[active].dataset.value:exact?exact[0]:items[0]?.dataset.value??input.value);
         area.focus();
-      }else if(e.key==="Escape"){ list.hidden=true; }
-      else if(e.key==="ArrowDown"&&!list.hidden){
-        e.preventDefault(); list.querySelector(".md-code-lang-item")?.focus();
+      }else if(e.key==="Escape"){
+        e.preventDefault();input.value=block.dataset.lang||"";close();area.focus();
+      }else if(e.key==="ArrowDown"||e.key==="ArrowUp"){
+        e.preventDefault();if(list.hidden) renderList("");
+        activate(active<0?(e.key==="ArrowDown"?0:-1):active+(e.key==="ArrowDown"?1:-1));
+      }else if(e.key==="Tab"){
+        if(active>=0) applyLanguage(list.querySelectorAll(".md-code-lang-item")[active].dataset.value);
+        close();
       }
-    });
-    document.addEventListener("mousedown",(e)=>{
-      if(!langWrap.contains(e.target)) list.hidden=true;
     });
     input.addEventListener("change",()=>applyLanguage(input.value));
 
     const hint=document.createElement("span");
     hint.className="md-code-hint";hint.textContent="Tab 缩进 · Ctrl+Enter 退出";
     const copy=document.createElement("button");
+    copy.className="md-code-copy";
     copy.type="button";copy.textContent="复制";copy.title="复制代码正文";
     copy.addEventListener("mousedown",event=>event.preventDefault());
     copy.addEventListener("click",()=>{
       const selection=getSelection(), saved=selection.rangeCount?selection.getRangeAt(0).cloneRange():null;
-      area.focus(); this.selectOffsets(area,0,HtmlToMd.codeText(area).length);
-      const ok=document.execCommand("copy");
+      const active=document.activeElement, clipboard=document.createElement("textarea");
+      clipboard.value=HtmlToMd.codeText(area);clipboard.readOnly=true;
+      clipboard.style.cssText="position:fixed;left:-10000px;top:0";
+      document.body.append(clipboard);clipboard.select();
+      const ok=document.execCommand("copy");clipboard.remove();active?.focus();
       if(saved){selection.removeAllRanges();selection.addRange(saved);}
       copy.textContent=ok?"已复制":"复制";setTimeout(()=>copy.textContent="复制",1000);
     });
@@ -925,6 +1131,7 @@ const App = {
 
   refreshCode(block) {
     if (!block) return;
+    this.refreshDiagram(block);
     const area=block.querySelector(".md-code-area");
     const mirror=block.querySelector(".md-code-highlight");
     const text=HtmlToMd.codeText(area), language=block.dataset.lang||"";
@@ -955,6 +1162,7 @@ const App = {
     if(event.key==="Escape" || ctrl&&event.key==="Enter") {
       event.preventDefault();
       const block=area.closest(".md-code");
+      if(block.classList.contains("has-diagram")) this.setDiagramEditing(block,false);
       let next=block.nextElementSibling;
       if(!next || next.contentEditable==="false") {
         next=document.createElement("p");next.innerHTML="<br>";block.after(next);
@@ -1085,13 +1293,37 @@ const App = {
       if(inserted){
         inserted.removeAttribute("data-insert-token");
         const area=inserted.querySelector(".md-code-area");
-        if(area){area.focus();this.selectOffsets(area,0);}
+        if(area){
+          if(inserted.classList.contains("has-diagram")) this.setDiagramEditing(inserted,true);
+          area.focus();this.selectOffsets(area,0);
+        }
         else this.focusCell(inserted.querySelector("th,td"));
       }
     });
   },
   onKeyDown(event) {
     if(event.isComposing || event.keyCode===229) return;
+    // Toolbar inputs/buttons must not inherit a stale selection in code/prose.
+    if(event.target.closest?.(".md-code-tools,.md-diagram-preview")) return;
+    const completion=this.fenceCompletion;
+    if(completion) {
+      const items=[...completion.menu.children];
+      if(event.key==="ArrowDown"||event.key==="ArrowUp") {
+        event.preventDefault();
+        completion.active=completion.active<0?(event.key==="ArrowDown"?0:items.length-1):
+          (completion.active+(event.key==="ArrowDown"?1:-1)+items.length)%items.length;
+        items.forEach((item,i)=>item.setAttribute("aria-selected",String(i===completion.active)));
+        items[completion.active].scrollIntoView({block:"nearest"});return;
+      }
+      if(event.key==="Escape") {event.preventDefault();completion.menu.close();return;}
+      if(event.key==="Enter"&&!event.ctrlKey&&!event.altKey&&!event.shiftKey) {
+        if(completion.active>=0 || completion.match[3]) {
+          event.preventDefault();completion.menu.close();
+          this.insertFenceCode(completion.paragraph,completion.match,items[Math.max(0,completion.active)].dataset.value);return;
+        }
+        completion.menu.close();
+      }
+    }
     // Keystrokes inside an atom that is in source-edit mode.
     if (this.editingAtom()) {
       const ctrl = event.ctrlKey || event.metaKey;
@@ -1119,17 +1351,9 @@ const App = {
       const match=paragraph&&text.match(/([\s\S]*?)(\x60{3,}|~{3,})([\w+#.-]*)(?:\2)?$/);
       if(match && this.textOffset(paragraph)>=match[1].length){
         event.preventDefault();
-        const range=document.createRange();
-        if(match[1]) {
-          const start=this.caretRange(paragraph,match[1].length);
-          const tail=this.caretRange(paragraph,text.length);
-          range.setStart(start.startContainer,start.startOffset);
-          range.setEnd(tail.startContainer,tail.startOffset);
-        } else range.selectNode(paragraph);
-        const s=getSelection();s.removeAllRanges();s.addRange(range);
         // No explicit info string: apply the configured default language.
         const info=match[3] || (window.__defaultCodeLanguage||"");
-        this.insertMarkdown(match[2]+info+"\n\n"+match[2]);return;
+        this.insertFenceCode(paragraph,match,info);return;
       }
       // Enter inside a heading: keep the heading for the text before the
       // caret and continue in a normal paragraph. Chromium's default inserts

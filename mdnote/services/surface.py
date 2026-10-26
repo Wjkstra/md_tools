@@ -6,13 +6,13 @@ can cross them:
 
 - editable blocks (headings, paragraphs, lists, quotes, tables, normal code)
   render to their usual HTML and stay editable,
-- complex blocks (front matter, Mermaid diagrams, block math) are non-editable
+- complex blocks (front matter, block math) are non-editable
   "atoms" carrying their original Markdown in ``data-md``; the page fills in
   their rendered form (diagram/formula) and the user can switch the atom to
   source editing.
 
-Normal code is a plain editable ``<pre data-lang>`` so the reverse serializer
-can restore its language (Pygments would otherwise drop it).
+Code and Mermaid share a persistent source editor, so editing a diagram never
+destroys its source or requires a whole-document mode switch.
 """
 
 import html as _html
@@ -115,8 +115,13 @@ def highlight_code(source: str, language: str) -> str:
     from pygments.lexers import get_lexer_by_name, TextLexer
     from pygments.token import STANDARD_TYPES
     from pygments.util import ClassNotFound
+    # Familiar fence names that Pygments does not expose as lexer aliases.
+    lexer_language = {
+        "cassandra": "sql", "mariadb": "mysql", "mongodb": "javascript",
+        "math": "tex", "svelte": "html", "jsonc": "json5",
+    }.get(language.lower(), language)
     try:
-        lexer = get_lexer_by_name(language or "text", stripnl=False, ensurenl=False)
+        lexer = get_lexer_by_name(lexer_language or "text", stripnl=False, ensurenl=False)
     except ClassNotFound:
         lexer = TextLexer(stripnl=False, ensurenl=False)
     # Avoid doing expensive lexing on huge pasted blocks.
@@ -197,10 +202,6 @@ def _render_block(block) -> str:
                      f'<pre>{display}</pre>')
 
     if btype == "code":
-        if block.lang and block.lang.lower() == "mermaid":
-            source = _html.escape(fenced_body(block.raw))
-            return _atom("atom-diagram", block.raw,
-                         f'<pre class="mermaid">{source}</pre>')
         return _code_block(block)
 
     if btype == "math":

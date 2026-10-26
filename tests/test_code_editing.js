@@ -43,3 +43,18 @@ test('auto pairs leave string and comment contents alone',()=>{
 test('unknown languages retain the configured tab width',()=>{
   assert.equal(C.unit('custom',3),'   ');
 });
+test('language suggestions cover development, data, configuration and diagrams',()=>{
+  for(const name of ['cpp','csharp','python','tsx','vue','powershell','yaml','toml',
+    'mariadb','cassandra','mermaid','plantuml','dot','latex'])
+    assert.ok(C.languages.some(([value])=>value===name),name);
+  assert.equal(new Set(C.languages.map(([value])=>value)).size,C.languages.length);
+  assert.ok(C.languages.length>100);
+});
+test('language lookup ranks exact names and searches aliases and Chinese labels',()=>{
+  assert.equal(C.suggestions('c')[0][0],'c');
+  assert.equal(C.suggestions('c++')[0][0],'cpp');
+  assert.equal(C.suggestions('tf')[0][0],'hcl');
+  assert.ok(C.suggestions('架构').some(([value])=>value==='mermaid'));
+  assert.equal(C.language('  Py  '),'python');
+  assert.equal(C.language('custom-lexer'),'custom-lexer');
+});
