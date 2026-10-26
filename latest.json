@@ -1,6 +1,6 @@
 {
-  "version": "0.3.8",
-  "notes": "本次更新内容：\n\n- 修复部分 Windows 设备上安装后启动即退出、报错 \"DLL load failed while importing QtGui\" 的问题（安装包内 VC 运行时与 Qt 所需版本不匹配，已统一为匹配版本）\n- 升级安装时按上一版本的文件清单清理已移除的程序文件，避免旧文件残留干扰新版本；只删除应用自身文件，笔记和用户数据（%APPDATA%）不受影响",
-  "url": "https://github.com/Wjkstra/md_tools/releases/download/v0.3.8/MdNote-Setup-0.3.8.exe",
-  "sha256": "763b1178572670b6289b36778fc2bb90b31300b4b5bab64725812207e329035d"
+  "version": "0.3.9",
+  "notes": "本次更新内容：\n\n- 修复按 Ctrl+数字设置标题后立即使用拼音输入法，前几个字母会以英文直接上屏的问题\n- 修复标题行回车后新行无法用 Ctrl+数字设置标题的问题；现在标题内回车会拆分为标题与正文段落（行首回车插入正文行，空标题回车恢复正文）\n- 修复反复删除、新建标题后快捷键和 \"#\" 语法可能失效的问题\n- 新增：选中多个段落后按 Ctrl+数字，可统一设置为对应级别标题\n- 修复部分 Windows 设备安装后启动报错 \"DLL load failed while importing QtGui\" 的问题（0.3.8 已修复，本版包含）",
+  "url": "https://github.com/Wjkstra/md_tools/releases/download/v0.3.9/MdNote-Setup-0.3.9.exe",
+  "sha256": "2956ea6fe27373d447e2ae02c61a1ae65d89e46204b72e188536cfefa78834ef"
 }
