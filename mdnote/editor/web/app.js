@@ -36,6 +36,7 @@ const App = {
     document.addEventListener("keyup", () => this.updateHeadingHint());
     document.addEventListener("beforeinput", (e) => this.onBeforeInput(e));
     document.addEventListener("input", (e) => this.onInput(e));
+    document.addEventListener("compositionend", (e) => this.onCompositionEnd(e));
     document.addEventListener("mousedown", (e) => this.onMouseDown(e), true);
     document.addEventListener("selectionchange", () => this.scheduleHint());
     document.addEventListener("paste",event=>{
@@ -350,7 +351,22 @@ const App = {
       return; // atom edits never trigger prose block conversion
     }
     this.scheduleSync();
+    // While an IME composition is active the DOM must not be rebuilt:
+    // replacing the text node being composed (block conversion, inline
+    // reformat) breaks the IME anchor — the first pinyin letters land raw in
+    // English and following keystrokes get lost. Defer until compositionend.
+    if (event.isComposing) return;
     // Convert immediately (synchronous) so markers never linger.
+    this.formatCurrentBlock(event.data);
+    this.scheduleHint();
+  },
+
+  onCompositionEnd(event) {
+    const target = event.target;
+    if (!target || !target.closest ||
+        !document.getElementById("doc").contains(target)) return;
+    if (this.editingAtom() || target.closest(".md-code-area")) return;
+    // Run the conversions skipped during composition against the settled text.
     this.formatCurrentBlock(event.data);
     this.scheduleHint();
   },
@@ -1115,6 +1131,17 @@ const App = {
         const info=match[3] || (window.__defaultCodeLanguage||"");
         this.insertMarkdown(match[2]+info+"\n\n"+match[2]);return;
       }
+      // Enter inside a heading: keep the heading for the text before the
+      // caret and continue in a normal paragraph. Chromium's default inserts
+      // a bare <div>, which block shortcuts (Ctrl+number) and the caret's
+      // block lookup do not recognise, so subsequent formatting silently
+      // fails on that line.
+      const heading=this.selectionElement()?.closest?.("h1,h2,h3,h4,h5,h6");
+      if(heading && !heading.closest(".md-code,table,.md-atom,li")){
+        event.preventDefault();
+        this.splitHeading(heading);
+        return;
+      }
     }
     // Inline format shortcuts in the continuous surface.
     const ctrl = event.ctrlKey || event.metaKey;
@@ -1138,26 +1165,118 @@ const App = {
     }
   },
 
+  // Enter in a heading: the part before the caret keeps its heading, the caret
+  // moves into a new normal paragraph after it (empty heading + Enter demotes
+  // it in place). Typora semantics, and it keeps subsequent block shortcuts
+  // working (a browser-default bare <div> would not be a recognised block).
+  splitHeading(host) {
+    const doc = document.getElementById("doc");
+    doc.focus();
+    const offset = this.caretOffsetIn(host);
+    const text = host.textContent;
+    if (offset === 0) {
+      if (text.trim() === "") {
+        this._demoteTo(host, "p");
+        return;
+      }
+      const paragraph = document.createElement("p");
+      paragraph.innerHTML = "<br>";
+      host.before(paragraph);
+      this.restoreCaret(paragraph, 0);
+    } else {
+      const before = text.slice(0, offset), after = text.slice(offset);
+      host.innerHTML = MdInline.format(before) || "<br>";
+      const paragraph = document.createElement("p");
+      paragraph.innerHTML = after ? MdInline.format(after) : "<br>";
+      host.after(paragraph);
+      this.restoreCaret(paragraph, 0);
+    }
+    this.postProcess(doc);
+    this.scheduleSync();
+  },
+
+  // Change one standalone block's tag via the editing framework, which keeps
+  // the IME composition anchor and the native undo stack intact (a manual
+  // replaceWith detaches the node the input method is composing into).
+  // Returns the new element. With selectBlock the whole block is selected
+  // first (used while walking a multi-block selection one block at a time).
+  formatBlockTag(host, tagName, selectBlock = false) {
+    tagName = tagName.toUpperCase();
+    // A paragraph/heading inside a quote converts by lifting the whole quote
+    // into a standalone block (a plain formatBlock would nest the heading
+    // inside the blockquote).
+    const quote = host.tagName === "BLOCKQUOTE" ? host
+      : (host.parentElement && host.parentElement.tagName === "BLOCKQUOTE"
+         ? host.parentElement : null);
+    if (quote) {
+      const source = host.tagName === "BLOCKQUOTE"
+        ? (host.querySelector("p") || host) : host;
+      const insertion = document.createElement(tagName);
+      insertion.innerHTML = source.innerHTML || "<br>";
+      quote.replaceWith(insertion);
+      return insertion;
+    }
+    const selection = getSelection();
+    if (selectBlock) {
+      const range = document.createRange();
+      range.selectNodeContents(host);
+      selection.removeAllRanges(); selection.addRange(range);
+    }
+    document.execCommand("formatBlock", false, tagName);
+    const converted = this.selectionElement()?.closest?.(tagName.toLowerCase());
+    const result = converted && converted.closest("#doc") ? converted : host;
+    if (!result.textContent.trim()) result.innerHTML = "<br>";
+    return result;
+  },
+
   // Convert the block the caret is in to a heading of `level` (0 = paragraph).
   setHeadingLevel(level) {
+    const doc = document.getElementById("doc");
+    doc.focus();
     const target = this.selectionElement();
-    const host = target && target.closest
-      ? target.closest("h1,h2,h3,h4,h5,h6,p,li,blockquote") : null;
-    if (!host || host.closest(".md-code, table, .md-atom")) return;
-    if (host.tagName === "LI") {
-      this._convertListItem(host, level === 0 ? "p" : "h" + level);
+    // Include bare <div>: leaving a list or exiting a heading via Enter may
+    // leave one, and every block command must keep working on it.
+    let host = target && target.closest
+      ? target.closest("h1,h2,h3,h4,h5,h6,p,li,blockquote,div") : null;
+    if (host === doc) host = null; // whole-document selection
+    if (host && host.closest(".md-code, table, .md-atom")) return;
+    const tagName = level === 0 ? "p" : "h" + level;
+    // Any block inside a list item converts the whole item (lists stay valid).
+    const item = host && (host.tagName === "LI" ? host : host.closest("li"));
+    if (item) {
+      this._convertListItem(item, tagName);
       return;
     }
-    const offset = this.caretOffsetIn(host);
-    const insertion = document.createElement(level === 0 ? "p" : "h" + level);
-    insertion.innerHTML = MdInline.format(host.textContent) || "<br>";
-    if (host.tagName === "P" && host.parentElement.tagName === "BLOCKQUOTE") {
-      host.parentElement.replaceWith(insertion);
-    } else {
-      host.replaceWith(insertion);
+    // A non-collapsed selection spanning several top-level blocks converts
+    // each block separately. formatBlock over the cross-block range itself
+    // would merge the blocks into one.
+    const selection = getSelection();
+    if (selection.rangeCount && !selection.isCollapsed) {
+      const range = selection.getRangeAt(0);
+      const convertible = (el) =>
+        /^H[1-6]$|^P$|^DIV$|^BLOCKQUOTE$/.test(el.tagName) && el.closest("#doc");
+      const blocks = Array.from(doc.children)
+        .filter(el => convertible(el) && range.intersectsNode(el) &&
+                      el.textContent.trim() !== "");
+      if (blocks.length > 1) {
+        const converted = blocks.map(el => this.formatBlockTag(el, tagName, true));
+        this.postProcess(doc);
+        this.scheduleSync();
+        // Collapse into the first converted block so the next keystroke types
+        // instead of replacing every selected heading.
+        this.restoreCaret(converted[0], 0);
+        return;
+      }
     }
-    this.restoreCaret(insertion, offset);
-    this.postProcess(document.getElementById("doc"));
+    if (!host) return;
+    const offset = this.caretOffsetIn(host);
+    const liftedQuote = host.tagName === "BLOCKQUOTE"
+      || (host.parentElement && host.parentElement.tagName === "BLOCKQUOTE");
+    const converted = this.formatBlockTag(host, tagName);
+    this.postProcess(doc);
+    // formatBlock keeps the caret itself for in-place changes; only the
+    // blockquote lift needs an explicit restore.
+    if (liftedQuote) this.restoreCaret(converted, offset);
     this.scheduleSync();
   },
 
@@ -1250,7 +1369,9 @@ const App = {
     // Must be at the very start of THIS block's text.
     if (this.caretOffsetIn(host) !== 0) return false;
     if (/^H[1-6]$/.test(host.tagName)) {
-      this._demoteTo(host, "p");
+      document.getElementById("doc").focus();
+      this.formatBlockTag(host, "p");
+      this.scheduleSync();
       return true;
     }
     if (host.tagName === "LI") {
@@ -1265,6 +1386,7 @@ const App = {
   },
 
   _demoteTo(host, tagName, whole) {
+    document.getElementById("doc").focus();
     const node = whole || host;
     const p = document.createElement(tagName);
     p.innerHTML = host.innerHTML || "<br>";
