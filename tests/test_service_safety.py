@@ -441,6 +441,9 @@ class InstallerInventoryTests(unittest.TestCase):
             for target in user_files:
                 target.write_text("keep", encoding="utf-8")
             contents = build_inventory(build, read_app_version())
+            # Releases carrying an install manifest install it as well.
+            (installed / "install-manifest.txt").write_bytes(
+                (build / "install-manifest.txt").read_bytes())
             self.assertNotRegex(contents, r"(?m)^\s*RMDir\s+/r")
             delete_targets = re.findall(r'^  Delete "\$INSTDIR\\(.*)"$', contents, re.MULTILINE)
             for relative in delete_targets:

@@ -11,7 +11,12 @@ from pathlib import Path
 
 os.environ.setdefault("QT_QPA_PLATFORM", "offscreen")
 
-from scripts.prepare_installer import sync_vc_runtime, VC_RUNTIME_DLLS
+from scripts.prepare_installer import (
+    MANIFEST_NAME,
+    build_inventory,
+    sync_vc_runtime,
+    VC_RUNTIME_DLLS,
+)
 
 
 @unittest.skipUnless(
@@ -54,6 +59,47 @@ class VcRuntimeSyncTests(unittest.TestCase):
             first = sync_vc_runtime(Path(tmp))
             second = sync_vc_runtime(Path(tmp))
             self.assertFalse(any("vcruntime140_1" in item for item in second))
+
+
+class InstallManifestTests(unittest.TestCase):
+    def _make_dist(self, root: Path) -> None:
+        root.mkdir(parents=True)
+        (root / "MdNote.exe").write_bytes(b"exe")
+        pkg = root / "_internal" / "PySide6"
+        pkg.mkdir(parents=True)
+        (pkg / "Qt6Core.dll").write_bytes(b"qt")
+
+    def test_manifest_lists_files_then_dirs_deepest_first(self):
+        import tempfile
+
+        with tempfile.TemporaryDirectory() as tmp:
+            dist = Path(tmp) / "MdNote"
+            self._make_dist(dist)
+            build_inventory(dist, "1.2.3")
+
+            with (dist / MANIFEST_NAME).open(
+                    encoding="ascii", newline="") as handle:
+                text = handle.read()
+            self.assertTrue(text.endswith("\r\n"))
+            lines = text.splitlines()
+            self.assertIn("FMdNote.exe", lines)
+            self.assertIn(r"F_internal\PySide6\Qt6Core.dll", lines)
+            # The manifest documents other files, never itself.
+            self.assertNotIn(f"F{MANIFEST_NAME}", lines)
+            dirs = [line for line in lines if line.startswith("D")]
+            self.assertEqual(dirs, [r"D_internal\PySide6", r"D_internal"])
+
+    def test_manifest_is_installed_and_uninstalled(self):
+        import tempfile
+
+        with tempfile.TemporaryDirectory() as tmp:
+            dist = Path(tmp) / "MdNote"
+            self._make_dist(dist)
+            nsh = build_inventory(dist, "1.2.3")
+
+            self.assertIn(f'File "{dist / MANIFEST_NAME}"', nsh)
+            self.assertIn(
+                f'Delete "$INSTDIR\\{MANIFEST_NAME}"', nsh)
 
 
 if __name__ == "__main__":

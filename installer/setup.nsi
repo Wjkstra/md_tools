@@ -129,10 +129,47 @@ Function un.onInit
   Call un.EnsureMdNoteClosed
 FunctionEnd
 
+; Remove files owned by the previous release before extracting the new one.
+; Deletion is inventory-scoped (same safety model as uninstall): only paths
+; recorded in the previously installed manifest are touched, so user files are
+; never at risk. Legacy releases (0.3.7 and earlier, no manifest) are left in
+; place: SetOutPath/File overwrites existing binaries in place (Windows is
+; case-insensitive, so the old VCRUNTIME140_1.dll is refreshed even though its
+; casing differs), and the install directory is dedicated (ValidateInstallDir).
+; Without this cleanup, files removed from newer builds (e.g. Qt DLLs older
+; hooks collected at _internal root) would linger across upgrades and could
+; shadow newer binaries, breaking startup with
+; "DLL load failed while importing QtGui".
+Function CleanObsoleteFiles
+  IfFileExists "$INSTDIR\install-manifest.txt" 0 cleanDone
+  FileOpen $4 "$INSTDIR\install-manifest.txt" r
+readLoop:
+  FileRead $4 $3
+  IfErrors readDone
+  ; Drop the trailing CRLF.
+  StrLen $2 $3
+  IntOp $2 $2 - 2
+  StrCpy $3 $3 $2
+  StrCpy $2 $3 1 0
+  StrCpy $1 $3 ${NSIS_MAX_STRLEN} 1
+  StrCmp $2 "F" 0 dirEntry
+  Delete "$INSTDIR\$1"
+  Goto readLoop
+dirEntry:
+  StrCmp $2 "D" 0 readLoop
+  RMDir "$INSTDIR\$1"
+  Goto readLoop
+readDone:
+  FileClose $4
+  Delete "$INSTDIR\install-manifest.txt"
+cleanDone:
+FunctionEnd
+
 Section "MdNote（必需）" SecCore
   SectionIn RO
   Call EnsureMdNoteClosed
   Call ValidateInstallDir
+  Call CleanObsoleteFiles
   SetRegView 64
   !insertmacro MDNOTE_INSTALL_FILES
 
