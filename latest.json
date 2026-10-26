@@ -1,6 +1,6 @@
 {
-  "version": "0.3.10",
-  "notes": "本次更新内容：\n\n- 代码块语言选择升级：内置 130 种语言 / 格式预设，支持别名与中文关键词搜索（例如输入「架构」可找到 Mermaid）、方向键选择；完整列表可向上展开，不再被窗口边缘裁剪\n- 新增围栏联想：正文中输入三个反引号即显示语言建议，鼠标点击或方向键 + 回车直接插入带语言的代码块\n- Mermaid 图表支持点击直接编辑源码并实时预览，点击外部、按 Esc 或 Ctrl+Enter 恢复图表，无需切换整篇源码模式；源码语法有误时在预览区直接提示\n- PlantUML、Graphviz / DOT、D2 等新增为图表源码格式预设\n- 修复部分围栏语言名无法语法高亮的问题（Cassandra、MariaDB、MongoDB、数学公式、Svelte、JSONC 等）\n- 复制代码时不再抢占焦点或改变编辑器选区",
-  "url": "https://github.com/Wjkstra/md_tools/releases/download/v0.3.10/MdNote-Setup-0.3.10.exe",
-  "sha256": "80e961fa78a53acf9ea435097d06e166020cb32b627b308a5818c9db1b9da574"
+  "version": "0.3.11",
+  "notes": "本次更新内容：\n\n- 修复在资源管理器中右键「打开方式 → MdNote」时，打开的不是所选文档而是其他文档的问题；MdNote 已在运行时，文件会在已有窗口的新标签中打开并自动切换到前台\n- 文件树自动定位到当前文档所在目录并高亮当前文件，且只显示 Markdown（.md / .markdown）文件\n- 侧边栏默认开启并显示「大纲」页；「文件」「大纲」「搜索」仍可在视图菜单或用快捷键切换，开关状态会被记住\n\n0.3.10 的代码块 130 种语言预设、输入反引号联想语言、Mermaid 点击编辑与实时预览等改进本版同样包含。",
+  "url": "https://github.com/Wjkstra/md_tools/releases/download/v0.3.11/MdNote-Setup-0.3.11.exe",
+  "sha256": "a14ca7ab0d1ed890f56c96c7abddc8ba371005638c3a9bfb1a8382fff6b2b194"
 }
