@@ -43,7 +43,7 @@ WELCOME = """# MdNote
 
 
 class MainWindow(QMainWindow):
-    def __init__(self) -> None:
+    def __init__(self, open_paths: list[str] | None = None) -> None:
         super().__init__()
         configure_ui_font(self)
         self.setWindowTitle("MdNote")
@@ -130,6 +130,9 @@ class MainWindow(QMainWindow):
         # 始终先创建一个初始标签（即使 _restore_session 被打桩也存在）
         self._initial_session = self.add_session(focus=True)
         self._restore_session()
+        # 命令行 / 文件关联（“打开方式”）传入的文件优先于会话恢复
+        if open_paths:
+            self._open_startup_paths(open_paths)
         if plugin_errors:
             detail = "\n".join(f"• {name}: {message}" for name, message in plugin_errors)
             QTimer.singleShot(0, self, lambda: self.alert(f"部分插件未能加载，其他功能可继续使用：\n{detail}"))
@@ -177,6 +180,7 @@ class MainWindow(QMainWindow):
         if existing is not None:
             self.tabs.setCurrentIndex(self.tabs.indexOf(existing))
             existing.focus_editor()
+            self._follow_file_folder(path)
             return existing
         text = self._read_document(path)
         if text is None:
@@ -184,7 +188,46 @@ class MainWindow(QMainWindow):
         session = self.add_session(text, file_path=path)
         self._arm_watcher(path)
         self._push_recent(path)
+        self._follow_file_folder(path)
         return session
+
+    def _follow_file_folder(self, path: str) -> None:
+        """文件树根目录跟随所打开文件的同级目录（只列 Markdown 文件）。
+
+        文件已在当前根目录内时不重新设根，避免清空正在查看的搜索结果。
+        """
+        folder = str(Path(path).resolve().parent)
+        if self.sidebar.is_current_folder(folder):
+            return
+        self.sidebar.open_folder(folder, select_file=str(Path(path).resolve()))
+        self._patch_settings(last_folder=folder)
+
+    def open_external_files(self, paths: list[str]) -> None:
+        """另一个 MdNote 进程（文件关联 / 打开方式）转来的打开请求。"""
+        opened = [session for session in (self.open_file(p) for p in paths)
+                  if session is not None]
+        if opened:
+            self.tabs.setCurrentWidget(opened[-1])
+            opened[-1].focus_editor()
+        # 即便没有文件（单纯唤起已有实例），也要把窗口带到前台。
+        self.showNormal()
+        self.raise_()
+        self.activateWindow()
+
+    def _open_startup_paths(self, paths: list[str]) -> None:
+        """启动参数带来的文件优先于会话恢复，并替换欢迎页占位标签。"""
+        opened = [session for session in (self.open_file(p) for p in paths)
+                  if session is not None]
+        if not opened:
+            return
+        initial = self._initial_session
+        if initial not in opened and initial.file_path is None and not initial.dirty:
+            index = self.tabs.indexOf(initial)
+            self.tabs.removeTab(index)
+            initial.autosave_timer.stop()
+            initial.deleteLater()
+        self.tabs.setCurrentWidget(opened[0])
+        opened[0].focus_editor()
 
     def _push_recent(self, path: str) -> None:
         target = str(Path(path).resolve())
@@ -501,6 +544,7 @@ class MainWindow(QMainWindow):
         self.sidebar.show()
         self.sidebar.show_tab(name)
         self.sidebar.focus_current()
+        self._patch_settings(sidebar_visible=True, sidebar_tab=name)
 
     def cycle_focus(self, backwards) -> None:
         self.sidebar.show()
@@ -619,9 +663,11 @@ class MainWindow(QMainWindow):
         if self.sidebar.isVisible():
             self.sidebar.hide()
             self.focus_editor()
+            self._patch_settings(sidebar_visible=False)
         else:
             self.sidebar.show()
             self.sidebar.focus_current()
+            self._patch_settings(sidebar_visible=True)
 
     def toggle_focus(self) -> None:
         s = settings_service().current
@@ -951,6 +997,7 @@ class MainWindow(QMainWindow):
 
         if s.sidebar_visible:
             self.sidebar.show()
+            self.sidebar.show_tab(s.sidebar_tab)
         if s.last_folder:
             self.sidebar.open_folder(s.last_folder)
         self.request_status()

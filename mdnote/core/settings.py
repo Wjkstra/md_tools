@@ -25,8 +25,9 @@ class AppSettings:
     image_path_type: str = "relative"
     highlight_mark: bool = True
     auto_save: bool = False
-    sidebar_visible: bool = False
-    sidebar_tab: str = "files"
+    sidebar_visible: bool = True
+    sidebar_tab: str = "outline"
+    settings_version: int = 1
     last_file: str | None = None
     last_folder: str | None = None
     enabled_plugins: List[str] = field(default_factory=list)
@@ -76,7 +77,18 @@ class SettingsService:
         # A blank/whitespace update source means "use the built-in default".
         if isinstance(values.get("update_url"), str):
             values["update_url"] = values["update_url"].strip()
-        return AppSettings(**values)
+        settings = AppSettings(**values)
+        settings = self._migrate(data, settings)
+        return settings
+
+    def _migrate(self, raw: dict, settings: AppSettings) -> AppSettings:
+        # v1（0.3.11）：侧边栏由默认隐藏改为默认开启，默认停在“大纲”页。
+        # 旧配置文件没有版本号，其中保存的 False / "files" 多为旧出厂默认
+        # 而非用户主动选择，统一迁移一次；用户此后手动调整会连同版本号落盘。
+        if "settings_version" not in raw:
+            settings = replace(settings, settings_version=1,
+                               sidebar_visible=True, sidebar_tab="outline")
+        return settings
 
     def _write(self, settings: AppSettings) -> None:
         atomic_write_text(self._path,

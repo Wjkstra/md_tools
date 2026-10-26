@@ -1,5 +1,6 @@
 """侧边栏：搜索 / 文件树 / 大纲三个标签页。"""
 
+import os
 from pathlib import Path
 
 from PySide6.QtCore import Qt, Signal, QEvent, QTimer
@@ -50,13 +51,16 @@ class Sidebar(QWidget):
         self._search_box.returnPressed.connect(self._run_search)
         self._search_results.itemActivated.connect(self._on_search_result)
 
-        # 文件树
+        # 文件树：根目录跟随当前打开文件的同级目录，只列出 Markdown 文件
         self._model = QFileSystemModel()
         self._model.setRootPath("")
+        self._model.setNameFilters(("*.md", "*.markdown"))
+        self._model.setNameFilterDisables(False)
         self._tree = QTreeView()
         self._tree.setModel(self._model)
         for col in range(1, 4):
             self._tree.hideColumn(col)
+        self._tree.setHeaderHidden(True)
         self._tree.activated.connect(self._on_tree_double)
         self._tree.setAccessibleName("文件树，Enter 打开，Esc 返回编辑器")
         self._tabs.addTab(self._tree, "文件")
@@ -81,15 +85,41 @@ class Sidebar(QWidget):
         self._search_results.installEventFilter(self)
         self._tabs.tabBar().installEventFilter(self)
 
-    def open_folder(self, folder: str) -> None:
+    def open_folder(self, folder: str, select_file: str | None = None) -> None:
         self._reset_search()
         self._folder = folder
         idx = self._model.setRootPath(folder)
         self._tree.setRootIndex(idx)
+        if select_file:
+            self._select_file_when_ready(folder, select_file)
+
+    def is_current_folder(self, folder: str) -> bool:
+        return (self._folder is not None
+                and os.path.normcase(os.path.normpath(self._folder))
+                == os.path.normcase(os.path.normpath(folder)))
+
+    def _select_file_when_ready(self, folder: str, target: str) -> None:
+        """QFileSystemModel 异步列目录，目标目录加载完成后选中并滚动到文件。"""
+        expected = os.path.normcase(os.path.normpath(folder))
+
+        def select(loaded_path: str) -> None:
+            if os.path.normcase(os.path.normpath(loaded_path)) != expected:
+                return
+            try:
+                self._model.directoryLoaded.disconnect(select)
+                index = self._model.index(target)
+                if index.isValid():
+                    self._tree.setCurrentIndex(index)
+                    self._tree.scrollTo(index)
+            except RuntimeError:
+                # 窗口关闭过程中树控件的 C++ 对象可能已销毁。
+                pass
+
+        self._model.directoryLoaded.connect(select)
 
     def _on_tree_double(self, idx) -> None:
         path = self._model.filePath(idx)
-        if Path(path).is_file() and path.lower().endswith((".md", ".markdown", ".txt")):
+        if Path(path).is_file() and path.lower().endswith((".md", ".markdown")):
             self.open_file_requested.emit(path)
 
     def set_headings(self, headings) -> None:
