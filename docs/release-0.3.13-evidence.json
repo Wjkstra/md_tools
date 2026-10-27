@@ -1,0 +1,59 @@
+{
+  "version": "0.3.13",
+  "baseline": "a64b030",
+  "release_url": "https://github.com/Wjkstra/md_tools/releases/tag/v0.3.13",
+  "artifact": {
+    "name": "MdNote-Setup-0.3.13.exe",
+    "bytes": 149605283,
+    "sha256": "7006eaa91d8ef2ee4a79207af51d48f9cfd276776e9c934856d62c8bf5ee7df4",
+    "reduction_percent": 31.78
+  },
+  "python": {
+    "tests": 241,
+    "failures": [],
+    "errors": [],
+    "skipped": [
+      [
+        "test_directory_alias_is_only_searched_once (test_reliability.ReliabilityTests)",
+        "Directory symlinks unavailable"
+      ]
+    ],
+    "seconds": 107.22,
+    "success": true
+  },
+  "javascript": {
+    "tests": 55,
+    "passed": 55
+  },
+  "build": {
+    "compared_modules": 30,
+    "mismatches": [],
+    "not_stored": [
+      "mdnote.__main__"
+    ],
+    "version": "0.3.13",
+    "web_assets": 69,
+    "different_web_assets": []
+  },
+  "package": {
+    "prepare_installer": {
+      "exit_code": 0,
+      "stdout": "VC runtime synced: vcruntime140.dll 14.44.35211.0\nVC runtime synced: vcruntime140_1.dll 14.44.35211.0\nVC runtime synced: concrt140.dll 14.44.35211.0\nNSIS inventory written: D:\\tools\\md_tool\\.audit-tool\\release-0.3.13\\installer\\generated-files.nsh\n",
+      "stderr": ""
+    },
+    "nsis": {
+      "exit_code": 0,
+      "log": "nsis.log"
+    },
+    "artifact": {
+      "path": "MdNote-Setup-0.3.13.exe",
+      "size": 149605283,
+      "sha256": "7006eaa91d8ef2ee4a79207af51d48f9cfd276776e9c934856d62c8bf5ee7df4"
+    }
+  },
+  "archive_integrity": "7-Zip: Everything is Ok",
+  "limitations": [
+    "No actual upgrade or uninstall executed",
+    "No throughput benchmark on the reported network"
+  ]
+}

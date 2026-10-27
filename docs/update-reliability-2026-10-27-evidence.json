@@ -1,0 +1,83 @@
+{
+  "date": "2026-10-27",
+  "baseline": "a64b030",
+  "source_version": "0.3.12",
+  "published": false,
+  "python_full": {
+    "tests": 240,
+    "failures": [],
+    "errors": [],
+    "skipped": [
+      [
+        "test_directory_alias_is_only_searched_once (test_reliability.ReliabilityTests)",
+        "Directory symlinks unavailable"
+      ]
+    ],
+    "seconds": 113.821,
+    "success": true
+  },
+  "python_final_focused": {
+    "tests": 39,
+    "failures": [],
+    "errors": [],
+    "skipped": [],
+    "seconds": 3.088,
+    "success": true
+  },
+  "javascript": {
+    "tests": 55,
+    "passed": 55,
+    "failed": 0
+  },
+  "real_https_test": {
+    "bytes_before_disconnect": 16384,
+    "resume_range": "bytes=16384-",
+    "passed": true,
+    "ssl_verification": true
+  },
+  "installer_directory_test": {
+    "passed": true,
+    "uses_production_onInit": true,
+    "elevated": false,
+    "registry": "isolated random HKCU fixture keys, removed after testing"
+  },
+  "build": {
+    "pyinstaller_exit_code": 0,
+    "seconds": 120.185,
+    "critical_modules_match_source": true,
+    "optional_qml_warning": "qmlassetdownloaderprivateplugin.dll does not exist"
+  },
+  "package": {
+    "prepare_installer": {
+      "exit_code": 0,
+      "stdout": "VC runtime synced: vcruntime140.dll 14.44.35211.0\nVC runtime synced: vcruntime140_1.dll 14.44.35211.0\nVC runtime synced: concrt140.dll 14.44.35211.0\nNSIS inventory written: D:\\tools\\md_tool\\.audit-tool\\update-2026-10-27\\installer\\generated-files.nsh\n",
+      "stderr": ""
+    },
+    "nsis": {
+      "exit_code": 0,
+      "log": "nsis.log"
+    },
+    "artifact": {
+      "path": ".audit-tool\\update-2026-10-27\\MdNote-test-setup.exe",
+      "size": 149609889,
+      "sha256": "1ffdb02277b35d1ce034f6bc9dee5340d38a225b6506437a321be4a5604c1932"
+    }
+  },
+  "size_comparison": {
+    "original_bytes": 219311183,
+    "test_package_bytes": 149609889,
+    "reduction_percent": 31.78
+  },
+  "test_package_sha256": "1ffdb02277b35d1ce034f6bc9dee5340d38a225b6506437a321be4a5604c1932",
+  "archive_integrity": {
+    "tool": "7-Zip test",
+    "exit_code": 0,
+    "files": 3058,
+    "result": "Everything is Ok"
+  },
+  "limitations": [
+    "No real installation or upgrade",
+    "No bandwidth benchmark on the reported network",
+    "No live release or mirror URL changed"
+  ]
+}

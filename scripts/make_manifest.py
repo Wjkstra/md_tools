@@ -39,6 +39,8 @@ def main() -> None:
     parser.add_argument("--version", default=read_app_version(),
                         help="Defaults to mdnote.__version__; must match it")
     parser.add_argument("--url", required=True)
+    parser.add_argument("--mirror", action="append", default=[],
+                        help="Optional publisher-controlled HTTPS mirror; repeat for multiple sources")
     parser.add_argument("--notes", default="")
     parser.add_argument(
         "--notes-file", default=None, type=Path,
@@ -51,14 +53,17 @@ def main() -> None:
         parser.error("--version must match mdnote.__version__; update that source first")
 
     try:
-        address = urlsplit(args.url)
-        if (address.scheme.lower() != "https" or not address.hostname or
-                address.username is not None or address.password is not None or
-                any(ord(character) < 33 for character in args.url)):
-            raise ValueError("invalid HTTPS URL")
-        address.port
+        if len(args.mirror) > 8:
+            raise ValueError("too many mirrors")
+        for url in [args.url, *args.mirror]:
+            address = urlsplit(url)
+            if (address.scheme.lower() != "https" or not address.hostname or
+                    address.username is not None or address.password is not None or
+                    any(ord(character) < 33 for character in url)):
+                raise ValueError("invalid HTTPS URL")
+            address.port
     except ValueError:
-        parser.error("--url must be an HTTPS URL without embedded credentials")
+        parser.error("--url / --mirror must be HTTPS URLs without embedded credentials (at most 8 mirrors)")
 
     if not args.installer.exists():
         raise SystemExit(f"安装包不存在：{args.installer}")
@@ -75,6 +80,8 @@ def main() -> None:
     }
     if args.min_version:
         manifest["minVersion"] = args.min_version
+    if args.mirror:
+        manifest["mirrors"] = list(dict.fromkeys(args.mirror))
 
     args.out.parent.mkdir(parents=True, exist_ok=True)
     args.out.write_text(

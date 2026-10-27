@@ -69,7 +69,8 @@ class MainWindow(QMainWindow):
             (settings_service().current.update_url or "").strip()
             or config.DEFAULT_MANIFEST_URL
         )
-        self.updater = UpdateManager(manifest_url, __version__, self)
+        self.updater = UpdateManager(manifest_url, __version__, self,
+                                     cache_dir=config.app_data_dir() / "updates")
         self._wire_updater()
 
         # 标签栏
@@ -802,6 +803,7 @@ class MainWindow(QMainWindow):
             lambda msg: self._on_update_error("检查更新", msg)
         )
         self.updater.download_progress.connect(self._on_download_progress)
+        self.updater.download_status.connect(self._show_operation)
         self.updater.download_finished.connect(self._on_download_finished)
         self.updater.download_failed.connect(
             lambda msg: self._on_update_error("更新", msg)
@@ -869,11 +871,12 @@ class MainWindow(QMainWindow):
 
         self._show_operation("更新安装包已校验")
         installed = bool(getattr(sys, "frozen", False))
+        install_dir = Path(sys.executable).resolve().parent if installed else None
         if installed and not self.close():
             self.alert(f"安装包已准备好，请保存并退出后运行：\n{path}")
             return
         try:
-            launch_installer(path)
+            launch_installer(path, install_dir=install_dir)
         except (OSError, ValueError) as exc:
             self.alert(f"无法启动安装程序：{exc}\n可稍后手动打开：\n{path}")
 

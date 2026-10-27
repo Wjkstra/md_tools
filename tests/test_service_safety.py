@@ -49,6 +49,15 @@ class Reply:
         self.aborted = False
         self.deleted = False
         self.failure = QNetworkReply.NetworkError.NoError
+        self.status = 200
+        self.headers = {}
+
+    def attribute(self, attribute):
+        if attribute == QNetworkRequest.Attribute.HttpStatusCodeAttribute:
+            return self.status
+
+    def rawHeader(self, name):
+        return self.headers.get(name.encode() if isinstance(name, str) else bytes(name), b"")
 
     def readAll(self):
         result, self.payload = self.payload, b""

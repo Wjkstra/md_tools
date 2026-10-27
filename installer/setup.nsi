@@ -3,6 +3,10 @@
 ; makensis installer/setup.nsi
 
 Unicode True
+; Qt dominates the download size; solid LZMA avoids redownloading a large
+; zlib-compressed runtime on every release.
+SetCompressor /SOLID lzma
+SetCompressorDictSize 32
 !include "MUI2.nsh"
 !include "FileFunc.nsh"
 !include "WordFunc.nsh"
@@ -108,18 +112,30 @@ VID_SilentFail:
 FunctionEnd
 
 Function .onInit
-  ; Correct precedence: built-in /D (already applied to $INSTDIR) > previous
-  ; install (registry) > default InstallDir. NSIS consumes /D before .onInit, so
-  ; detect it by $INSTDIR having moved away from the literal default.
-  StrCpy $R0 $INSTDIR
+  ; Explicit /D (including an explicitly chosen default path) always wins.
+  ; The running app supplies its own executable directory when upgrading.
+  ClearErrors
+  ; NSIS removes /D from $CMDLINE; inspect the original Windows command line.
+  System::Call 'kernel32::GetCommandLineW() w .r0'
+  ${GetOptions} $0 "/D=" $R0
+  IfErrors findPrevious haveDir
+findPrevious:
   SetRegView 64
   ReadRegStr $R1 HKLM "Software\Microsoft\Windows\CurrentVersion\Uninstall\MdNote" "InstallLocation"
-  StrCmp $R1 "" haveDir            ; no previous install: keep /D or default
-  StrCmp $R0 "$PROGRAMFILES64\MdNote" useReg
-  Goto haveDir                     ; /D moved $INSTDIR: it wins
+  IfFileExists "$R1\MdNote.exe" useReg
+  ; Older installers may have written the 32-bit registry view.
+  SetRegView 32
+  ReadRegStr $R1 HKLM "Software\Microsoft\Windows\CurrentVersion\Uninstall\MdNote" "InstallLocation"
+  IfFileExists "$R1\MdNote.exe" useReg
+  ReadRegStr $R1 HKCU "Software\Microsoft\Windows\CurrentVersion\Uninstall\MdNote" "InstallLocation"
+  IfFileExists "$R1\MdNote.exe" useReg
+  SetRegView 64
+  ReadRegStr $R1 HKCU "Software\Microsoft\Windows\CurrentVersion\Uninstall\MdNote" "InstallLocation"
+  IfFileExists "$R1\MdNote.exe" useReg haveDir
 useReg:
   StrCpy $INSTDIR $R1
 haveDir:
+  SetRegView 64
   Call EnsureMdNoteClosed
   ; Silent installs never show the directory page, so validate explicitly.
   Call ValidateInstallDir

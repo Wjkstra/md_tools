@@ -1,6 +1,6 @@
 {
-  "version": "0.3.12",
-  "notes": "本次更新为保存保真修复（依据 2026-10-27 全面测试报告）：\n\n- 修复「另存为」到其他目录时，Tab 缩进或引用内代码块中的图片示例（如 `![](x.png)`）被误当正文改写为 assets 路径并复制图片的问题\n- 修复列表中的四至六级标题保存后变成普通段落\n- 修复普通波浪号（~）保存后被加上反斜杠，导致导出 HTML 出现多余 \\~ 的问题\n- 修复 `Ctrl` 这类安全行内 HTML 标签保存后丢失的问题；标题属性 `{#id .class title=\"...\"}` 现在完整保留\n- 修复全空白的行内代码保存后变成可见反引号\n- 修复不带文件路径的二次启动不能把已有 MdNote 窗口唤到前台\n\n0.3.10 / 0.3.11 的语言预设、Mermaid 实时预览、文件关联打开、文件树与侧边栏改进本版同样包含。",
-  "url": "https://github.com/Wjkstra/md_tools/releases/download/v0.3.12/MdNote-Setup-0.3.12.exe",
-  "sha256": "040debecb71cf9f5d25273ab7c86711a0117f5d9cf35e28c43ced4ad38bceeb7"
+  "version": "0.3.13",
+  "notes": "本次更新修复下载失败与安装目录问题：\n\n- 改用 HTTPS / HTTP/1.1，规避部分网络环境中的 HTTP/2 protocol error\n- 网络中断自动重试、断点续传；支持退出后继续下载，已校验安装包可直接复用\n- 显示下载量和速度；支持发布方配置 HTTPS 备用下载源\n- 应用内更新沿用当前安装位置，兼容中文、空格路径和旧安装记录\n- 安装包使用更高压缩率，减少约三分之一的下载量\n\n旧版若仍无法自动下载，可从 GitHub 版本发布页手动下载安装包。升级前请保存文档并退出 MdNote。",
+  "url": "https://github.com/Wjkstra/md_tools/releases/download/v0.3.13/MdNote-Setup-0.3.13.exe",
+  "sha256": "7006eaa91d8ef2ee4a79207af51d48f9cfd276776e9c934856d62c8bf5ee7df4"
 }
