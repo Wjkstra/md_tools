@@ -1,6 +1,6 @@
 {
-  "version": "0.3.11",
-  "notes": "本次更新内容：\n\n- 修复在资源管理器中右键「打开方式 → MdNote」时，打开的不是所选文档而是其他文档的问题；MdNote 已在运行时，文件会在已有窗口的新标签中打开并自动切换到前台\n- 文件树自动定位到当前文档所在目录并高亮当前文件，且只显示 Markdown（.md / .markdown）文件\n- 侧边栏默认开启并显示「大纲」页；「文件」「大纲」「搜索」仍可在视图菜单或用快捷键切换，开关状态会被记住\n\n0.3.10 的代码块 130 种语言预设、输入反引号联想语言、Mermaid 点击编辑与实时预览等改进本版同样包含。",
-  "url": "https://github.com/Wjkstra/md_tools/releases/download/v0.3.11/MdNote-Setup-0.3.11.exe",
-  "sha256": "a14ca7ab0d1ed890f56c96c7abddc8ba371005638c3a9bfb1a8382fff6b2b194"
+  "version": "0.3.12",
+  "notes": "本次更新为保存保真修复（依据 2026-10-27 全面测试报告）：\n\n- 修复「另存为」到其他目录时，Tab 缩进或引用内代码块中的图片示例（如 `![](x.png)`）被误当正文改写为 assets 路径并复制图片的问题\n- 修复列表中的四至六级标题保存后变成普通段落\n- 修复普通波浪号（~）保存后被加上反斜杠，导致导出 HTML 出现多余 \\~ 的问题\n- 修复 `Ctrl` 这类安全行内 HTML 标签保存后丢失的问题；标题属性 `{#id .class title=\"...\"}` 现在完整保留\n- 修复全空白的行内代码保存后变成可见反引号\n- 修复不带文件路径的二次启动不能把已有 MdNote 窗口唤到前台\n\n0.3.10 / 0.3.11 的语言预设、Mermaid 实时预览、文件关联打开、文件树与侧边栏改进本版同样包含。",
+  "url": "https://github.com/Wjkstra/md_tools/releases/download/v0.3.12/MdNote-Setup-0.3.12.exe",
+  "sha256": "040debecb71cf9f5d25273ab7c86711a0117f5d9cf35e28c43ced4ad38bceeb7"
 }
