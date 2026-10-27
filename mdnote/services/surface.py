@@ -33,7 +33,8 @@ _SURFACE_ATTRIBUTES["span"] = set(_SURFACE_ATTRIBUTES.get("span", set())) | {"cl
 for _tag in ("a", "img"):
     _SURFACE_ATTRIBUTES[_tag] = set(_SURFACE_ATTRIBUTES.get(_tag, set())) | {"title"}
 # Structural attributes we add ourselves; safe because this is our own surface.
-_EXTRA_GLOBAL_ATTRS = {"contenteditable", "data-md", "data-lang", "data-md-attr-id"}
+_EXTRA_GLOBAL_ATTRS = {"contenteditable", "data-md", "data-lang",
+                       "data-md-attr-id", "data-md-attrs"}
 _SURFACE_ATTRIBUTES["*"] = (
     set(_SURFACE_ATTRIBUTES.get("*", set())) | _EXTRA_GLOBAL_ATTRS)
 # Table cells keep text-align (alignment marker); the style-property whitelist
@@ -248,15 +249,36 @@ def _resolve_relative_images(html: str, doc_base: str | None) -> str:
     return pattern.sub(replace, html)
 
 
-# ATX heading carrying an authored id:  "# Title {#custom}" / "{: #custom}".
-_HEADING_ATTR_ID_RE = re.compile(
-    r"^[ \t]{0,3}#{1,6}[ \t]+.*?\{:?[ \t]*#([A-Za-z0-9_-]+)[^}]*\}[ \t]*$"
+# ATX heading carrying an attr_list: "# Title {#id .class key='value'}" / "{: ...}".
+# Mirrors Python-Markdown attr_list HEADER_RE: a space, optional colon, then
+# the inner attribute text (first char neither space nor "}").
+_HEADING_ATTRS_RE = re.compile(
+    r"^[ \t]{0,3}#{1,6}[ \t]+.*[ ]\{:?[ ]*([^}\n ][^\n}]*)\}[ \t]*$"
 )
+_HEADING_ID_TOKEN_RE = re.compile(r"(?:^|\s)#([A-Za-z0-9_-]+)(?:\s|$)")
+
+
+def _heading_attrs(raw: str) -> str | None:
+    match = _HEADING_ATTRS_RE.match(raw.rstrip())
+    if not match:
+        return None
+    attrs = match.group(1).strip()
+    return attrs or None
 
 
 def _heading_attr_id(raw: str) -> str | None:
-    match = _HEADING_ATTR_ID_RE.match(raw.rstrip())
+    attrs = _heading_attrs(raw)
+    if attrs is None:
+        return None
+    match = _HEADING_ID_TOKEN_RE.search(attrs)
     return match.group(1) if match else None
+
+
+def _with_heading_attrs(markup: str, attrs: str) -> str:
+    safe = _html.escape(attrs, quote=True)
+    return re.sub(r"^(<h[1-6]\b)",
+                  lambda m: f'{m.group(1)} data-md-attrs="{safe}"',
+                  markup, count=1)
 
 
 def _with_heading_attr_id(markup: str, attr_id: str) -> str:
@@ -324,17 +346,21 @@ def surface_html(text: str, doc_base: str | None = None) -> str:
             markup = _render_block(block)
         if block.type == "heading" and toc is not None:
             # TOC mode reassigns every heading id from one parser context;
-            # authored ids cannot be distinguished there, so drop them.
+            # authored attrs cannot be distinguished there, so drop them.
             markup = re.sub(r'\s+data-md-attr-id="[^"]*"', "", markup, count=1)
+            markup = re.sub(r'\s+data-md-attrs="[^"]*"', "", markup, count=1)
             if heading_index < len(heading_ids):
                 markup = re.sub(r'\s+id="[^"]*"', "", markup, count=1)
                 markup = re.sub(r"^(<h[1-6])", lambda m: m.group(1) +
                                 f' id="{_html.escape(heading_ids[heading_index], quote=True)}"', markup)
             heading_index += 1
         elif block.type == "heading":
-            attr_id = _heading_attr_id(block.raw)
-            if attr_id and "data-md-attr-id=" not in markup:
-                markup = _with_heading_attr_id(markup, attr_id)
+            attrs = _heading_attrs(block.raw)
+            if attrs and "data-md-attrs=" not in markup:
+                markup = _with_heading_attrs(markup, attrs)
+                attr_id = _heading_attr_id(block.raw)
+                if attr_id and "data-md-attr-id=" not in markup:
+                    markup = _with_heading_attr_id(markup, attr_id)
         parts.append(_tag_model_index(markup, i))
         # Blank paragraphs between this block and the next.
         if i + 1 < len(blocks):

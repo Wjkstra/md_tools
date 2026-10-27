@@ -123,9 +123,12 @@ _REF_DEFINITION_RE = re.compile(r"^(\s{0,3}\[([^\]\n]+)\]:\s*)(<[^>\n]*>|\S+)", 
 _HTML_IMAGE_RE = re.compile(r'(<img\b[^>]*?\bsrc=)(["\'])(.*?)\2', re.IGNORECASE)
 
 _FENCE_LINE_RE = re.compile(r"^ {0,3}(`{3,}|~{3,})(.*)$")
-_INDENTED_LINE_RE = re.compile(r"^(?: {4}|\t)")
 _LIST_MARKER_LINE_RE = re.compile(r"^\s{0,3}(?:[-+*]|\d{1,9}[.)])(?:\s|$)")
 _INLINE_CODE_RE = re.compile(r"(`+)([\s\S]*?)\1")
+
+# A CommonMark block-quote marker: up to three spaces, '>', one optional space.
+# It repeats so nested quotes (">> ") and quoted list contexts are stripped too.
+_QUOTE_PREFIX_RE = re.compile(r"^(?: {0,3}> ?)*")
 
 
 def _merge_regions(regions):
@@ -139,12 +142,33 @@ def _merge_regions(regions):
 
 
 def _line_is_blank(line: str) -> bool:
-    return line.strip(" \t\r\n") == ""
+    body = line.strip("\r\n")
+    # A marker-only line (">", "> >") is blank content inside a block quote.
+    return body[_QUOTE_PREFIX_RE.match(body).end():].strip(" \t") == ""
 
 
-def _line_indent(line: str) -> int:
-    stripped = line.lstrip(" ")
-    return len(line) - len(stripped)
+def _leading_column(text: str) -> int:
+    """Leading whitespace columns, with tabs advancing to 4-column stops."""
+    column = 0
+    for ch in text:
+        if ch == " ":
+            column += 1
+        elif ch == "\t":
+            column += 4 - column % 4
+        else:
+            break
+    return column
+
+
+def _content_after_quotes(line: str) -> str:
+    """Line content with block-quote marker prefix(es) removed."""
+    body = line.rstrip("\r\n")
+    return body[_QUOTE_PREFIX_RE.match(body).end():]
+
+
+def _code_indent_column(line: str) -> int:
+    """Indentation columns of code content after any quote markers."""
+    return _leading_column(_content_after_quotes(line))
 
 
 def _code_indent_threshold(lines, i) -> int:
@@ -152,15 +176,15 @@ def _code_indent_threshold(lines, i) -> int:
 
     Four spaces at document level; inside a list item an indented code block
     needs a blank line and eight (or deeper) spaces, otherwise the line is
-    just lazy list continuation prose.
+    just lazy list continuation prose. Quote markers are stripped before the
+    list marker is inspected.
     """
     j = i - 1
     while j >= 0 and _line_is_blank(lines[j]):
         j -= 1
-    marker = lines[j] if j >= 0 else ""
-    match = _LIST_MARKER_LINE_RE.match(marker)
-    if match:
-        return (max(0, _line_indent(marker)) // 4) * 4 + 8
+    marker = _content_after_quotes(lines[j]) if j >= 0 else ""
+    if _LIST_MARKER_LINE_RE.match(marker):
+        return (max(0, _leading_column(marker)) // 4) * 4 + 8
     return 4
 
 
@@ -168,8 +192,10 @@ def _code_regions(text: str) -> list[tuple[int, int]]:
     """Character spans of fenced, indented and inline code.
 
     Indented code starts after a blank line (document start counts) at the
-    indentation required for the current list context, and keeps interior
-    blank lines only when another indented line follows. Over-detection only
+    indentation required for the current list/quote context, and keeps interior
+    blank lines only when another indented line follows. Tabs count as
+    advancing to the next four-column stop. Fenced/indented code may carry a
+    block-quote marker prefix ("> ```", ">     code"). Over-detection only
     skips path rewriting, so erring towards protection is safe.
     """
     regions: list[tuple[int, int]] = []
@@ -183,7 +209,8 @@ def _code_regions(text: str) -> list[tuple[int, int]]:
     lines = text.splitlines(keepends=True)
     for i, line in enumerate(lines):
         body = line.rstrip("\r\n")
-        marker = _FENCE_LINE_RE.match(body)
+        content = _content_after_quotes(body)
+        marker = _FENCE_LINE_RE.match(content)
         if marker:
             token, rest = marker.group(1), marker.group(2)
             if fence_start is None:
@@ -193,14 +220,15 @@ def _code_regions(text: str) -> list[tuple[int, int]]:
                 regions.append((fence_start, offset + len(line)))
                 fence_start = None
         elif fence_start is None:
-            indented = bool(_INDENTED_LINE_RE.match(line)) and not _line_is_blank(line)
+            column = _leading_column(content)
+            indented = column >= 4 and not _line_is_blank(line)
             if indented and indented_start is not None:
-                if _line_indent(line) < indent_threshold:
+                if column < indent_threshold:
                     regions.append((indented_start, offset))
                     indented_start = None
             elif indented and prev_blank:
                 indent_threshold = _code_indent_threshold(lines, i)
-                if _line_indent(line) >= indent_threshold:
+                if column >= indent_threshold:
                     indented_start = offset
             elif indented_start is not None:
                 if _line_is_blank(line):
@@ -208,8 +236,7 @@ def _code_regions(text: str) -> list[tuple[int, int]]:
                     while k < len(lines) and _line_is_blank(lines[k]):
                         k += 1
                     follows = (k < len(lines)
-                               and bool(_INDENTED_LINE_RE.match(lines[k]))
-                               and _line_indent(lines[k]) >= indent_threshold
+                               and _code_indent_column(lines[k]) >= indent_threshold
                                and not _line_is_blank(lines[k]))
                     if not follows:
                         regions.append((indented_start, offset))

@@ -50,19 +50,28 @@ def decode_open_request(data: bytes) -> list[str]:
     paths = []
     # 按行先切字节再解码：单行出现非法字节不应丢弃整批请求。
     for raw_line in bytes(data).splitlines():
-        try:
-            line = raw_line.decode("utf-8").strip()
-        except UnicodeDecodeError:
-            continue
-        if not line:
-            continue
-        try:
-            value = json.loads(line)
-        except json.JSONDecodeError:
-            continue
-        if isinstance(value, list):
-            paths.extend(p for p in value if isinstance(p, str) and p)
+        parsed = parse_open_line(raw_line)
+        if parsed is not None:
+            paths.extend(parsed)
     return paths
+
+
+def parse_open_line(raw_line: bytes) -> list[str] | None:
+    """One newline-delimited JSON array; None means the line is no valid request."""
+    try:
+        line = raw_line.decode("utf-8").strip()
+    except UnicodeDecodeError:
+        return None
+    if not line:
+        return None
+    try:
+        value = json.loads(line)
+    except json.JSONDecodeError:
+        return None
+    if not isinstance(value, list) or not all(
+            isinstance(p, str) and p for p in value):
+        return None
+    return value
 
 
 def _forward_to_running_instance(paths) -> bool:
@@ -95,9 +104,11 @@ def _serve_open_requests(server: QLocalServer, window: MainWindow) -> None:
         buffer += incoming
         while b"\n" in buffer:
             line, buffer = buffer.split(b"\n", 1)
-            paths = decode_open_request(line)
-            if paths:
-                window.open_external_files(paths)
+            # A valid request is a JSON array even when empty: "[]\n" is a
+            # ping that must raise the existing window; garbage must not.
+            parsed = parse_open_line(line)
+            if parsed is not None:
+                window.open_external_files(parsed)
         connection._mdnote_buffer = buffer
 
     connection.readyRead.connect(read)

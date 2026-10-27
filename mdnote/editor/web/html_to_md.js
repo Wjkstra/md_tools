@@ -38,10 +38,12 @@
   // as em/strong/code/... elements and is serialized from those elements).
   function escapeText(value) {
     let text = value.replace(/&/g, "&amp;").replace(/</g, "&lt;");
-    // A backslash that would act as an escape must itself be escaped.
-    text = text.replace(/\\(?=[\\`*_{}\[\]()#+\-.!~|$<>])/g, "\\\\");
+    // A backslash that would act as an escape must itself be escaped. The set
+    // matches the engine's escapable characters: "~" is inert here (no
+    // strikethrough extension), so a backslash before it stays single and a
+    // bare tilde round-trips without a spurious backslash in exports.
+    text = text.replace(/\\(?=[\\`*_{}\[\]()#+\-.!|$<>])/g, "\\\\");
     text = text.replace(/\*/g, "\\*");
-    text = text.replace(/~/g, "\\~");
     text = text.replace(/`/g, "\\`");
     // "_" is inert between word characters (snake_case); escape it only where
     // a delimiter run could open/close emphasis.
@@ -92,6 +94,35 @@
   // Escape image alt text (a plain attribute value, never formatted nodes).
   function imageAlt(value) {
     return value.replace(/\\/g, "\\\\").replace(/\[/g, "\\[").replace(/\]/g, "\\]");
+  }
+
+  // Inline elements the sanitizer keeps that have no Markdown shorthand.
+  // They are written back as inline HTML so authored markup survives a round
+  // trip; only attributes nh3 itself retains are emitted. The block-level
+  // nh3 defaults are intentionally excluded (they need block serializers).
+  const INLINE_HTML_TAGS = {
+    kbd: null, samp: null, var: null, tt: null, u: null, small: null,
+    cite: null, dfn: null, acronym: null, abbr: null, q: null,
+    time: null, data: null, bdi: null, bdo: null, ruby: null,
+    rt: null, rp: null, rtc: null, wbr: null, ins: null,
+  };
+  // Attribute the surface sanitizer (nh3 defaults) may keep per tag.
+  const INLINE_HTML_ATTRS = {
+    bdo: ["dir"], q: ["cite"], ins: ["cite", "datetime"],
+  };
+
+  function inlineHtmlTag(node, tag) {
+    // <wbr> is void; everything else carries (possibly formatted) children.
+    if (tag === "wbr") return "<wbr>";
+    let attrs = "";
+    for (const name of INLINE_HTML_ATTRS[tag] || []) {
+      const value = attr(node, name);
+      if (value != null) {
+        attrs += " " + name + '="' + value.replace(/&/g, "&amp;")
+          .replace(/"/g, "&quot;").replace(/</g, "&lt;") + '"';
+      }
+    }
+    return "<" + tag + attrs + ">" + inlineChildren(node) + "</" + tag + ">";
   }
 
   function inline(node) {
@@ -151,6 +182,9 @@
       case "p": case "div":
         return inlineChildren(node);
       default:
+        if (Object.prototype.hasOwnProperty.call(INLINE_HTML_TAGS, tag)) {
+          return inlineHtmlTag(node, tag);
+        }
         return inlineChildren(node);
     }
   }
@@ -181,6 +215,9 @@
     while ((m = re.exec(text)) !== null) {
       if (m[0].length > longest) longest = m[0].length;
     }
+    // Empty code needs double backticks with one space inside ("`` ``");
+    // a single empty pair would parse as two literal backticks on reparse.
+    if (text === "") return "`` ``";
     const fence = '`'.repeat(longest + 1);
     const pad = /^`|`$/.test(text) ? ' ' : '';
     return fence + pad + text + pad + fence;
@@ -214,7 +251,7 @@
     const items = [];
     const loose = elementChildren(list).some(li => elementChildren(li).some(c => tagOf(c) === "p"));
     const BLOCK_TAGS = ["p", "div", "ul", "ol", "pre", "blockquote",
-      "h1", "h2", "h3", "table"];
+      "h1", "h2", "h3", "h4", "h5", "h6", "table"];
     elementChildren(list).forEach(function (li, index) {
       if (tagOf(li) !== "li") return;
       const marker = isTaskItem(li) ? "- [" + (taskChecked(li) ? "x" : " ") + "] "
@@ -395,10 +432,12 @@
       case "h4": case "h5": case "h6": {
         const level = Number(tag[1]);
         let text = inlineChildren(node);
-        // Authored attr_list id ("# Title {#custom}"), carried separately
-        // from TOC-generated ids (which are dropped by the sanitizer).
+        // Authored attr_list ("# Title {#id .cls k=v}"), carried verbatim
+        // in data-md-attrs; data-md-attr-id is the older id-only fallback.
+        const authoredAttrs = attr(node, "data-md-attrs");
         const authoredId = attr(node, "data-md-attr-id");
-        if (authoredId) text += " {#" + authoredId + "}";
+        if (authoredAttrs) text += " {" + authoredAttrs + "}";
+        else if (authoredId) text += " {#" + authoredId + "}";
         return "#".repeat(level) + " " + text;
       }
       case "p": {

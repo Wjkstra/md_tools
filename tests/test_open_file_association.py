@@ -44,6 +44,14 @@ class StartupPathTests(unittest.TestCase):
         data = b'not json\n' + app_module.encode_open_request(["a.md"]) + b'\xff\xfe'
         self.assertEqual(app_module.decode_open_request(data), ["a.md"])
 
+    def test_parse_open_line_distinguishes_empty_ping_from_garbage(self):
+        self.assertEqual(app_module.parse_open_line(b"[]"), [])
+        self.assertEqual(app_module.parse_open_line(b'["a.md"]'), ["a.md"])
+        self.assertIsNone(app_module.parse_open_line(b"not json"))
+        self.assertIsNone(app_module.parse_open_line(b"123"))
+        self.assertIsNone(app_module.parse_open_line(b'["a", 5]'))
+        self.assertIsNone(app_module.parse_open_line(b"  "))
+
 
 class SettingsMigrationTests(unittest.TestCase):
     @contextmanager
@@ -175,10 +183,13 @@ class SingleInstanceForwardingTests(unittest.TestCase):
     def test_second_instance_forwards_paths_to_running_window(self):
         from PySide6.QtNetwork import QLocalSocket
 
+        # A unique pipe name keeps the test isolated from a real running
+        # MdNote instance (Windows allows duplicate named-pipe servers).
+        token = f"mdnote-test-{os.getpid()}-{id(self)}"
         server = QLocalServer()
-        QLocalServer.removeServer(app_module._INSTANCE_NAME)
-        self.addCleanup(QLocalServer.removeServer, app_module._INSTANCE_NAME)
-        self.assertTrue(server.listen(app_module._INSTANCE_NAME))
+        QLocalServer.removeServer(token)
+        self.addCleanup(QLocalServer.removeServer, token)
+        self.assertTrue(server.listen(token))
 
         received = []
 
@@ -191,7 +202,7 @@ class SingleInstanceForwardingTests(unittest.TestCase):
             lambda: app_module._serve_open_requests(server, fake))
 
         client = QLocalSocket()
-        client.connectToServer(app_module._INSTANCE_NAME)
+        client.connectToServer(token)
         for _ in range(50):
             if client.state() == QLocalSocket.ConnectedState:
                 break
@@ -213,6 +224,45 @@ class SingleInstanceForwardingTests(unittest.TestCase):
         client.disconnectFromServer()
         server.close()
         self.assertEqual(received, [[str(doc.resolve())]])
+
+    def test_empty_ping_reaches_window_but_garbage_does_not(self):
+        from PySide6.QtNetwork import QLocalSocket
+
+        token = f"mdnote-test-{os.getpid()}-{id(self)}-empty"
+        server = QLocalServer()
+        QLocalServer.removeServer(token)
+        self.addCleanup(QLocalServer.removeServer, token)
+        self.assertTrue(server.listen(token))
+
+        received = []
+
+        class FakeWindow:
+            def open_external_files(self, paths):
+                received.append(paths)
+
+        fake = FakeWindow()
+        server.newConnection.connect(
+            lambda: app_module._serve_open_requests(server, fake))
+
+        client = QLocalSocket()
+        client.connectToServer(token)
+        for _ in range(50):
+            if client.state() == QLocalSocket.ConnectedState:
+                break
+            self.app.processEvents()
+            QTest.qWait(10)
+        # A valid empty array is a raise-window ping; garbage is dropped.
+        client.write(b"[]\n")
+        client.write(b"broken line\n")
+        client.flush()
+        for _ in range(50):
+            self.app.processEvents()
+            if received:
+                break
+            QTest.qWait(10)
+        client.disconnectFromServer()
+        server.close()
+        self.assertEqual(received, [[]])
 
 
 if __name__ == "__main__":

@@ -295,3 +295,49 @@ test("rendered indented code keeps embedded fences, also inside lists", () => {
     "- sibling",
   ].join("\n"));
 });
+
+test("plain tildes stay literal without added backslashes (P2-02)", () => {
+  assert.equal(md(root(h("p", {}, "one ~ two ~~three"))), "one ~ two ~~three");
+  assert.equal(md(root(h("p", {}, "a~b ~~ c~~ d"))), "a~b ~~ c~~ d");
+});
+
+test("list items keep h4-h6 headings (P2-01)", () => {
+  for (const level of [4, 5, 6]) {
+    const tag = "h" + level;
+    const list = h("ul", {}, h("li", {}, h("p", {}, "parent"),
+      h(tag, {}, "subheading"), h("p", {}, "after")));
+    assert.equal(md(root(list)), [
+      "- parent", "",
+      "    " + "#".repeat(level) + " subheading", "",
+      "    after",
+    ].join("\n"));
+  }
+});
+
+test("empty inline code serializes to a valid empty span (P3-01)", () => {
+  assert.equal(md(root(h("p", {}, h("code", {}, "")))), "`` ``");
+  assert.equal(md(root(h("p", {}, "x", h("code", {}, ""), "y"))), "x`` ``y");
+  assert.equal(md(root(h("p", {}, h("code", {}, "a`b")))), "``a`b``");
+});
+
+test("safe inline HTML tags round-trip with supported attributes (P2-03)", () => {
+  assert.equal(md(root(h("p", {}, "Press ", h("kbd", {}, "Ctrl"), " now"))),
+    "Press <kbd>Ctrl</kbd> now");
+  assert.equal(md(root(h("p", {}, h("samp", {}, "out"), " ", h("var", {}, "x"),
+    " ", h("u", {}, "under"), " ", h("small", {}, "fine")))),
+    "<samp>out</samp> <var>x</var> <u>under</u> <small>fine</small>");
+  assert.equal(md(root(h("p", {}, h("bdo", { dir: "rtl" }, "mirror"), " ",
+    h("q", { cite: "http://x.invalid/" }, "quote")))),
+    '<bdo dir="rtl">mirror</bdo> <q cite="http://x.invalid/">quote</q>');
+  assert.equal(md(root(h("p", {}, "a", h("wbr", {}), "b"))), "a<wbr>b");
+});
+
+test("headings keep the full authored attr_list (P2-03)", () => {
+  assert.equal(md(root(h("h1", { "data-md-attrs": ".special" }, "Heading"))),
+    "# Heading {.special}");
+  assert.equal(md(root(h("h2", { "data-md-attrs": '#custom .special title="hint"' }, "T"))),
+    '## T {#custom .special title="hint"}');
+  // id-only fallback from older surface markup still works.
+  assert.equal(md(root(h("h3", { "data-md-attr-id": "legacy" }, "T"))),
+    "### T {#legacy}");
+});

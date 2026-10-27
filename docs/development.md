@@ -34,7 +34,8 @@ pip install pyinstaller      # 仅开发打包时需要
 
 ```bash
 python -m mdnote              # 直接运行应用（源码方式，改代码即生效）
-python tests/test_editor.py   # 运行编辑器变换回归测试
+python -m unittest discover -s tests -p "test_*.py"   # 运行全部 Python 回归
+node --test tests/test_html_to_md.js tests/test_code_editing.js tests/test_md_inline.js
 pyinstaller mdnote.spec       # 打包出 dist/MdNote 目录
 ```
 
@@ -43,7 +44,7 @@ pyinstaller mdnote.spec       # 打包出 dist/MdNote 目录
 | 文件 / 目录 | 作用 |
 | --- | --- |
 | `mdnote/config.py` | 用户数据目录与 Web 资源路径，兼容 PyInstaller 环境 |
-| `mdnote/app.py` | QApplication、单实例守护 |
+| `mdnote/app.py` | QApplication、启动参数解析、单实例守护与跨进程文件转发 |
 | `mdnote/core/settings.py` | 设置数据类、JSON 持久化、变更通知 |
 | `mdnote/editor/webview.py` | 实时模式、QWebChannel 桥、渲染净化 |
 | `mdnote/editor/web/` | 排版页面（HTML/CSS/JS）与离线资源 |
@@ -64,8 +65,8 @@ pyinstaller mdnote.spec       # 打包出 dist/MdNote 目录
 from mdnote.services.markdown_engine import markdown_engine
 print(markdown_engine().render("# 标题\n\n正文"))
 
-from mdnote.editor.webview import _safe_html
-print(_safe_html("<p onclick='x'>a</p>"))
+from mdnote.services.html_service import safe_html
+print(safe_html("<p onclick='x'>a</p>"))
 ```
 
 ## 5. 测试
@@ -74,20 +75,24 @@ print(_safe_html("<p onclick='x'>a</p>"))
 
 | 套件 | 覆盖 | 命令 |
 | --- | --- | --- |
-| `tests/test_editor.py` | 纯函数：各块类型回车、合并、缩进、空格触发、包裹、序列化往返（33 项） | `python tests/test_editor.py` |
-| `tests/test_plugin_loader.py` | 插件目录扫描、导入、扩展参与渲染、错误隔离（8 项） | `python tests/test_plugin_loader.py` |
-| `tests/test_search_service.py` | 文件名/正文检索、递归、忽略目录、大小写、上限（11 项） | `python tests/test_search_service.py` |
-| `tests/test_live_editor.py` | 真实 WebEngine 页面端到端交互：输入、块切换、表格、命令面板、焦点导航、保存等（40 项） | `python -m unittest tests.test_live_editor` |
+| `tests/test_html_to_md.js` | HTML→Markdown 序列化往返：格式、表格、列表标题、代码、行内 HTML、波浪号等 | `node --test tests/test_html_to_md.js` |
+| `tests/test_code_editing.js` | 语言预设、注释 / 字符串语境、选区换行、多行缩进 | `node --test tests/test_code_editing.js` |
+| `tests/test_md_inline.js` | 行内即时渲染 | `node --test tests/test_md_inline.js` |
+| `tests/test_review_2026_10_27.py` | 评审回归：代码图片保护、标题 attr_list、列表 h4–h6、空代码跨度、真实另存为 | `python -m unittest tests.test_review_2026_10_27` |
+| `tests/test_plugin_loader.py` | 插件目录扫描、导入、扩展参与渲染、错误隔离 | `python -m unittest tests.test_plugin_loader` |
+| `tests/test_search_service.py` | 文件名/正文检索、递归、忽略目录、大小写、上限 | `python -m unittest tests.test_search_service` |
+| `tests/test_live_editor.py` | 真实 WebEngine 页面端到端交互：输入、块切换、表格、命令面板、焦点导航、保存等 | `python -m unittest tests.test_live_editor` |
+
+全部 Python 用例：`python -m unittest discover -s tests -p "test_*.py"`。
+无显示环境先设置 `QT_QPA_PLATFORM=offscreen`、`QTWEBENGINE_CHROMIUM_FLAGS=--disable-gpu`。
 
 提交前应确保两层均通过。
 
 ### 5.1 添加测试
 
-- 新变换：在 `tests/test_editor.py` 按现有 `check(...)` 形式添加纯函数断言
-- 新交互：先在 `transforms.py` 以纯函数实现，再加测试，最后接入页面脚本
-
-> 编辑变换优先写成**纯函数**（输入文本与偏移，输出文本与光标），
-> 便于测试与复用，不直接依赖页面或控件。
+- 页面序列化 / 纯文本逻辑：在对应的 `tests/test_*.js` 中按现有 `assert.equal(...)` 形式添加
+- Python 服务逻辑：在 `tests/test_*.py` 添加 unittest 用例
+- 新交互：先在 `mdnote/editor/web/` 中实现并配 JS 纯函数用例，再加真实 WebEngine 交互用例，最后接入页面脚本
 
 ## 6. 编码规范
 
@@ -125,10 +130,9 @@ UI 面向用户的文本使用中文；代码标识符使用英文。
 
 ### 新增一种编辑行为
 
-1. 在 `editor/transforms.py` 增加纯函数并返回 `TransformResult`
-2. 在 `tests/test_editor.py` 添加断言
-3. 在 `editor/webview.py` 的 `transform` 分派命令
-4. 在 `web/app.js` 绑定对应按键
+1. 在 `mdnote/editor/web/` 的对应模块实现，优先写成不依赖 DOM 的纯函数
+2. 在 `tests/test_*.js` 添加纯函数断言；交互在 `tests/test_*_experience.py` 中用真实 WebEngine 覆盖
+3. 在 `web/app.js` 绑定对应按键 / 命令
 
 ### 新增一种 Markdown 语法
 
@@ -161,7 +165,7 @@ makensis installer/setup.nsi
 
 ### 8.3 发版前检查
 
-- [ ] `python tests/test_editor.py` 全部通过
+- [ ] `python -m unittest discover -s tests -p "test_*.py"` 与 `node --test tests/test_html_to_md.js tests/test_code_editing.js tests/test_md_inline.js` 全部通过
 - [ ] `python -m mdnote` 手工验证核心编辑流程
 - [ ] PyInstaller 打包后可运行
 - [ ] 安装程序可在自定义目录安装、可卸载
