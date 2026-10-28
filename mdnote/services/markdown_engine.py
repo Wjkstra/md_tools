@@ -12,7 +12,7 @@ from markdown.preprocessors import Preprocessor
 from .plugin_loader import load_enabled_named
 
 _TASK_RE = re.compile(
-    r"<li(?P<attr>[^>]*)>(?P<lead><p>)?"
+    r"<li(?P<attr>[^>]*)>\s*(?P<lead><p>)?"
     r"\s*\[(?P<check>[ xX])\]\s?",
 )
 _FENCE_RE = re.compile(r"^ {0,3}(" + chr(96) + r"{3,}|~{3,})(.*)$")

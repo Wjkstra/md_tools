@@ -1,3 +1,3 @@
 """MdNote native application package."""
 
-__version__ = "0.3.13"
+__version__ = "0.3.14"

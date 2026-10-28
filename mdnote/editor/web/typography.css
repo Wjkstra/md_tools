@@ -1,0 +1,37 @@
+/* Shared reading layout for the editor and HTML/PDF/image exports.
+   Only document-level prose/lists get the prose inset; lists inside quotes,
+   list items and the TOC keep their own local indentation. */
+:is(#doc, .md-document) {
+  --prose-indent: 2em;
+  --list-indent: 1.8em;
+  overflow-wrap: anywhere;
+}
+
+:is(#doc, .md-document) p { margin: 0.45em 0; }
+:is(#doc, .md-document) > p,
+#doc > div:not([class]):not([data-md]) { text-indent: var(--prose-indent); }
+:is(#doc, .md-document) > p.surface-end,
+:is(#doc, .md-document) > p:has(> img:only-child) { text-indent: 0; }
+
+:is(#doc, .md-document) :is(ul, ol) { padding-inline-start: var(--list-indent); }
+:is(#doc, .md-document) > :is(ul, ol) {
+  padding-inline-start: calc(var(--list-prose-indent, var(--prose-indent)) + var(--list-indent));
+}
+:is(#doc, .md-document) li { margin: 0.15em 0; }
+:is(#doc, .md-document) li > :is(ul, ol) { margin-block: 0.25em; }
+
+/* Reserve the marker gutter without making inline text, paragraphs and nested
+   lists separate flex items. Wrapped task text aligns with regular list text. */
+:is(#doc, .md-document) .task-list-item {
+  position: relative;
+  list-style: none;
+}
+:is(#doc, .md-document) .task-checkbox {
+  position: absolute;
+  inset-inline-start: -1.4em;
+  top: 0.38em;
+  width: 0.95em;
+  height: 0.95em;
+  margin: 0;
+  accent-color: var(--accent, #0969da);
+}

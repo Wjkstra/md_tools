@@ -29,6 +29,7 @@ from ..editor.block_model import build_model
 _SURFACE_TAGS = set(nh3.ALLOWED_TAGS) | {"input", "mark", "sup", "sub"}
 _SURFACE_ATTRIBUTES = dict(nh3.ALLOWED_ATTRIBUTES)
 _SURFACE_ATTRIBUTES["input"] = {"class", "checked", "disabled"}
+_SURFACE_ATTRIBUTES["li"] = set(_SURFACE_ATTRIBUTES.get("li", set())) | {"class"}
 _SURFACE_ATTRIBUTES["span"] = set(_SURFACE_ATTRIBUTES.get("span", set())) | {"class"}
 for _tag in ("a", "img"):
     _SURFACE_ATTRIBUTES[_tag] = set(_SURFACE_ATTRIBUTES.get(_tag, set())) | {"title"}

@@ -426,14 +426,16 @@ const App = {
     const text = host.textContent.replace(/ /g, " ");
     let m;
     let tag = null, inner = text, isList = false, ordered = false;
+    let listStart = 1;
     if ((m = /^\s{0,3}(#{1,6})[ \t ]+([\s\S]*)$/.exec(text))) {
       tag = "h" + m[1].length; inner = m[2];
     } else if ((m = /^\s{0,3}>[ \t ]?([\s\S]*)$/.exec(text))) {
       tag = "blockquote"; inner = m[1];
     } else if ((m = /^\s{0,3}[-+*][ \t ]+([\s\S]*)$/.exec(text))) {
-      tag = "ul"; isList = true;
-    } else if ((m = /^\s{0,3}\d{1,9}[.)][ \t ]+([\s\S]*)$/.exec(text))) {
-      tag = "ol"; isList = true; ordered = true;
+      tag = "ul"; isList = true; inner = m[1];
+    } else if ((m = /^\s{0,3}(\d{1,9})[.)][ \t ]+([\s\S]*)$/.exec(text))) {
+      tag = "ol"; isList = true; ordered = true; inner = m[2];
+      listStart = Number(m[1]);
     } else if (/^\s{0,3}(?:-{3,}|\*{3,}|_{3,})[ \t ]*$/.test(text)) {
       tag = "hr";
     }
@@ -448,8 +450,9 @@ const App = {
       replacement = document.createElement("hr");
     } else if (isList) {
       replacement = document.createElement(tag);
+      if (ordered) replacement.start = listStart;
       const li = document.createElement("li");
-      li.innerHTML = MdInline.format(ordered ? m[1] : m[1]) || "<br>";
+      li.innerHTML = MdInline.format(inner) || "<br>";
       replacement.appendChild(li);
     } else if (tag === "blockquote") {
       replacement = document.createElement("blockquote");
@@ -638,8 +641,7 @@ const App = {
     const host = this.selectionElement();
     const li = host && host.closest && host.closest("#doc li");
     if (li) {
-      let cb = (li.querySelector && li.querySelector(":scope > input.task-checkbox"))
-        || li.querySelector("input.task-checkbox");
+      let cb = li.querySelector(":scope > input.task-checkbox");
       if (cb) {
         const now = !cb.hasAttribute("checked");
         cb.toggleAttribute("checked", now);
@@ -651,6 +653,7 @@ const App = {
         cb.setAttribute("tabindex", "-1");
         li.insertBefore(cb, li.firstChild);
       }
+      li.classList.add("task-list-item");
       this.scheduleSync();
       return;
     }
@@ -660,6 +663,7 @@ const App = {
     const caret = this.caretOffsetIn(block);
     const ul = document.createElement("ul");
     const item = document.createElement("li");
+    item.className = "task-list-item";
     const cb = document.createElement("input");
     cb.type = "checkbox";
     cb.className = "task-checkbox";
@@ -1558,9 +1562,7 @@ const App = {
     document.getElementById("doc").focus();
     const range = document.createRange();
     if (!root.previousElementSibling) {
-      // A range beginning in the first list is normalized inside that list
-      // by Chromium. An empty leading paragraph gives the native operation
-      // a prose boundary outside it; undo restores the original list too.
+      // Chromium needs an external prose boundary at the start of a document.
       const boundary = document.createElement("p");
       boundary.innerHTML = "<br>";
       root.before(boundary);
@@ -1568,7 +1570,19 @@ const App = {
     } else range.selectNode(root);
     const sel = getSelection(); sel.removeAllRanges(); sel.addRange(range);
     // Replace at the original range in one native undo transaction.
-    document.execCommand("insertHTML", false, replacement);
+    // Chromium uses computed list indentation when normalizing insertHTML.
+    // Suspend only the decorative prose inset for the synchronous transaction
+    // so it cannot nest the replacement or absorb following prose. Restore it
+    // before painting; Markdown indentation and the undo history stay intact.
+    const doc = document.getElementById("doc");
+    const previousInset = doc.style.getPropertyValue("--list-prose-indent");
+    doc.style.setProperty("--list-prose-indent", "0em");
+    try {
+      document.execCommand("insertHTML", false, replacement);
+    } finally {
+      if (previousInset) doc.style.setProperty("--list-prose-indent", previousInset);
+      else doc.style.removeProperty("--list-prose-indent");
+    }
     const inserted = document.querySelector('[data-list-edit="' + token + '"]');
     if (inserted) {
       inserted.removeAttribute("data-list-edit");

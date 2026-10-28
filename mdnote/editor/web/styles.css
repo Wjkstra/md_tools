@@ -203,12 +203,6 @@ body[data-theme="night"] .md-code,
 body[data-theme="monokai"] .md-code,
 body[data-theme="dracula"] .md-code { background: var(--codehilite-bg); }
 
-p { margin: 0.45em 0; }
-
-/* 正文段落默认首行缩进两个字符（列表/引用/代码/表格内不缩进） */
-#doc > p { text-indent: 2em; }
-#doc > p.surface-end { text-indent: 0; }
-
 h1, h2, h3, h4, h5, h6 { line-height: 1.35; }
 h1 { font-size: 1.85em; border-bottom: 1px solid var(--border); padding-bottom: 0.25em; }
 h2 { font-size: 1.5em; }
@@ -237,18 +231,6 @@ blockquote {
   border-radius: 0 6px 6px 0;
   color: var(--text-secondary);
 }
-
-ul, ol { padding-left: 1.8em; }
-li { margin: 0.15em 0; }
-
-.task-list-item {
-  list-style: none;
-  display: flex;
-  align-items: flex-start;
-  gap: 0.45em;
-  margin-left: -1.4em;
-}
-.task-checkbox { width: 15px; height: 15px; margin-top: 0.45em; accent-color: var(--accent); }
 
 hr { border: none; border-top: 2px solid var(--border); margin: 1.2em 0; }
 

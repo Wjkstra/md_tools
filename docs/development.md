@@ -78,6 +78,7 @@ print(safe_html("<p onclick='x'>a</p>"))
 | `tests/test_html_to_md.js` | HTML→Markdown 序列化往返：格式、表格、列表标题、代码、行内 HTML、波浪号等 | `node --test tests/test_html_to_md.js` |
 | `tests/test_code_editing.js` | 语言预设、注释 / 字符串语境、选区换行、多行缩进 | `node --test tests/test_code_editing.js` |
 | `tests/test_md_inline.js` | 行内即时渲染 | `node --test tests/test_md_inline.js` |
+| `tests/test_typography.py` | 真实 WebEngine 排版几何、列表层级、任务列表往返与 HTML 导出一致性 | `python -m unittest discover -s tests -p "test_typography.py"` |
 | `tests/test_review_2026_10_27.py` | 评审回归：代码图片保护、标题 attr_list、列表 h4–h6、空代码跨度、真实另存为 | `python -m unittest tests.test_review_2026_10_27` |
 | `tests/test_plugin_loader.py` | 插件目录扫描、导入、扩展参与渲染、错误隔离 | `python -m unittest tests.test_plugin_loader` |
 | `tests/test_search_service.py` | 文件名/正文检索、递归、忽略目录、大小写、上限 | `python -m unittest tests.test_search_service` |

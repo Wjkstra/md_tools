@@ -141,7 +141,8 @@ def build_standalone_html(text: str, include_toc: bool = False,
                         for h in extract_headings(build_model(text)))
         toc = f"<nav><h2>目录</h2><ul>{items}</ul></nav>"
     assets = ""
-    css = _BASE_CSS + pygments_css()
+    css = (_BASE_CSS + (config.web_dir() / "typography.css").read_text(encoding="utf-8")
+           + pygments_css())
     if "$" in text:
         css += _offline_asset("katex/katex.min.css")
         assets += _script(_offline_asset("katex/katex.min.js"))
@@ -152,7 +153,8 @@ def build_standalone_html(text: str, include_toc: bool = False,
            "base-uri 'none'; connect-src 'none'")
     return ("<!doctype html><html lang='zh-CN'><head><meta charset='utf-8'/>"
             f'<meta http-equiv="Content-Security-Policy" content="{escape(csp, quote=True)}">'
-            f"<style>{css}</style></head><body>{toc}{body}{assets}{_script(_MEDIA_SCRIPT)}</body></html>")
+            f'<style>{css}</style></head><body>{toc}<div class="md-document">{body}</div>'
+            f"{assets}{_script(_MEDIA_SCRIPT)}</body></html>")
 
 
 def export_html(path: str, text: str, doc_base: str | None = None) -> None:

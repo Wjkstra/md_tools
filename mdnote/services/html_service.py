@@ -23,6 +23,7 @@ _ALLOWED_ATTRS = {
     "input": {"type", "checked", "disabled"},
     "td": {"colspan", "rowspan", "align"}, "th": {"colspan", "rowspan", "align"},
     "col": {"span"},
+    "ol": {"start"}, "li": {"value"},
 }
 _URL_SCHEMES = {"http", "https", "mailto", "tel", "file", "data"}
 _IMG_SRC_RE = re.compile(r'(<img\b[^>]*?\bsrc=)(["\'])(.*?)\2', re.IGNORECASE)
