@@ -1,0 +1,58 @@
+{
+  "version": "0.3.15",
+  "baseline": "b69bbdb",
+  "release_url": "https://github.com/Wjkstra/md_tools/releases/tag/v0.3.15",
+  "artifact": {
+    "name": "MdNote-Setup-0.3.15.exe",
+    "bytes": 151115202,
+    "sha256": "450f1479c394bc31ce5a1d2a82a89711bc42111bc18ea10a3255b641c0071af6"
+  },
+  "python": {
+    "tests": 316,
+    "failures": [],
+    "errors": [],
+    "skipped": [
+      [
+        "test_directory_alias_is_only_searched_once (test_reliability.ReliabilityTests)",
+        "Directory symlinks unavailable"
+      ]
+    ],
+    "seconds": 213.563,
+    "success": true
+  },
+  "javascript": {
+    "tests": 55,
+    "passed": 55
+  },
+  "build": {
+    "compared_modules": 30,
+    "mismatches": [],
+    "not_stored": [
+      "mdnote.__main__"
+    ],
+    "version": "0.3.15",
+    "web_assets": 70,
+    "different_web_assets": []
+  },
+  "package": {
+    "prepare_installer": {
+      "exit_code": 0,
+      "stdout": "VC runtime synced: vcruntime140.dll 14.44.35211.0\nVC runtime synced: vcruntime140_1.dll 14.44.35211.0\nVC runtime synced: msvcp140.dll 14.44.35211.0\nVC runtime synced: msvcp140_1.dll 14.44.35211.0\nVC runtime synced: msvcp140_2.dll 14.44.35211.0\nVC runtime synced: concrt140.dll 14.44.35211.0\nNSIS inventory written: D:\\tools\\md_tool\\.audit-tool\\release-0.3.15\\installer\\generated-files.nsh\n",
+      "stderr": ""
+    },
+    "nsis": {
+      "exit_code": 0,
+      "log": "nsis.log"
+    },
+    "artifact": {
+      "path": "MdNote-Setup-0.3.15.exe",
+      "size": 151115202,
+      "sha256": "450f1479c394bc31ce5a1d2a82a89711bc42111bc18ea10a3255b641c0071af6"
+    }
+  },
+  "archive_integrity": "7-Zip: Everything is Ok",
+  "smoke_launch": "packaged MdNote.exe alive 18s offscreen, only GLES fallback logs",
+  "limitations": [
+    "No actual installation, upgrade or uninstall executed"
+  ]
+}

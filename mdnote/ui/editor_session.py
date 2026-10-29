@@ -394,6 +394,16 @@ class EditorSession(QWidget):
         self.source.setTextCursor(cursor)
         self.source.setFocus()
 
+    def insert_link(self) -> None:
+        if self.mode == "live":
+            self.editor_command("insertLink")
+            return
+        cursor = self.source.textCursor()
+        selected = cursor.selectedText().replace(" ", "\n") or "链接文字"
+        cursor.insertText(f"[{selected}](https://)")
+        self.source.setTextCursor(cursor)
+        self.source.setFocus()
+
     def insert_image(self) -> None:
         from ..services.image_service import import_image
 

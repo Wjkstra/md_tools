@@ -1,0 +1,91 @@
+{
+  "date": "2026-10-29",
+  "version": "0.3.14",
+  "baseline_commit": "b69bbd5",
+  "python": {
+    "total": 316,
+    "passed": 315,
+    "skipped": 1,
+    "failed": 0,
+    "skip_reason": "Windows 目录符号链接权限场景（历史既有）"
+  },
+  "javascript": {
+    "total": 55,
+    "passed": 55,
+    "failed": 0
+  },
+  "stability_rerun": {
+    "modules": [
+      "tests.test_list_code_cross",
+      "tests.test_code_deletion",
+      "tests.test_code_variants_render",
+      "tests.test_shortcuts_full",
+      "tests.test_markdown_cross_matrix",
+      "tests.test_code_table_experience",
+      "tests.test_typography",
+      "tests.test_heading_shortcuts",
+      "tests.test_code_language_diagrams"
+    ],
+    "total": 134,
+    "passed": 134
+  },
+  "new_tests": {
+    "tests/test_list_code_cross.py": 13,
+    "tests/test_code_deletion.py": 14,
+    "tests/test_code_variants_render.py": 18,
+    "tests/test_shortcuts_full.py": 14,
+    "tests/test_markdown_cross_matrix.py": 7,
+    "total": 66
+  },
+  "environment": {
+    "python_runtime": "D:\\apps\\python310 (3.10.8)",
+    "pyside6": "6.11.1",
+    "qt_platform": "offscreen",
+    "chromium_flags": "--disable-gpu"
+  },
+  "fixes": [
+    {
+      "severity": "P0",
+      "title": "退出列表后围栏+回车不生成代码块",
+      "files": ["mdnote/editor/web/app.js"],
+      "mechanism": "fenceHost() 接受浏览器生成的裸 div；insertFenceCode 先将 div 规范化为 p"
+    },
+    {
+      "severity": "P1",
+      "title": "引用/列表内围栏保存时被降级为行内代码并破坏",
+      "files": ["mdnote/services/surface.py"],
+      "mechanism": "_contains_nested_fence 检测后整体逐字原子化"
+    },
+    {
+      "severity": "P1",
+      "title": "引用定义过度原子化导致普通链接段落内联公式失效",
+      "files": ["mdnote/services/surface.py"],
+      "mechanism": "_definition_labels/_uses_definition 精确匹配引用标签与缩写词"
+    },
+    {
+      "severity": "P2",
+      "title": "代码块前 Delete 反向清空本段正文",
+      "files": ["mdnote/editor/web/app.js"],
+      "mechanism": "guardDeleteIntoCode 拦截块末紧邻代码块的 Delete"
+    },
+    {
+      "severity": "P2",
+      "title": "空代码块无键盘删除路径",
+      "files": ["mdnote/editor/web/app.js"],
+      "mechanism": "空正文 0 列 Backspace 整块删除（可撤销/结构删除双路径）"
+    },
+    {
+      "severity": "P3",
+      "title": "引用开头 Backspace 不去格式",
+      "files": ["mdnote/editor/web/app.js"],
+      "mechanism": "_atBlockTextStart 忽略 Range 的块边界换行"
+    },
+    {
+      "severity": "P3",
+      "title": "Ctrl+K 无选区链接占位文字丢失",
+      "files": ["mdnote/editor/web/app.js", "mdnote/ui/editor_session.py", "mdnote/ui/main_window.py"],
+      "mechanism": "EditorSession.insert_link 统一两模式入口，wrapSelection 接受占位文本"
+    }
+  ],
+  "not_executed": ["安装包构建", "真实安装/升级/卸载", "线上更新清单发布"]
+}

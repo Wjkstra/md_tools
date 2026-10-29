@@ -289,6 +289,65 @@ def _with_heading_attr_id(markup: str, attr_id: str) -> str:
                   markup, count=1)
 
 
+def _contains_nested_fence(raw: str, btype: str) -> bool:
+    """Whether a list/quote block contains a fenced code block.
+
+    Python-Markdown's fenced_code extension does not parse fences inside a
+    blockquote or list item: it downgrades a backtick fence to inline code,
+    and the reverse serializer then destroys the fence lines. Tilde fences
+    survive only as inert prose. Such blocks are rendered as verbatim atoms
+    (click to edit source) so a surface round trip keeps the fence intact.
+    """
+    fence = r"(?:\x60{3,}|~{3,})"
+    if btype == "blockquote":
+        # > ``` after any nesting depth ("> > ```", leading spaces allowed).
+        return re.search(r"(?:^|\n)[ \t]*>(?:[ \t]*>)*[ \t]*" + fence, raw) is not None
+    if btype == "list":
+        # A fence inside an item always carries indentation; a fence in a
+        # nested quote ("  > ```") is equally unsupported.
+        return re.search(r"(?:^|\n)[ \t]+" + fence, raw) is not None or \
+            re.search(r"(?:^|\n)[ \t]*>[ \t]*" + fence, raw) is not None
+    return False
+
+
+def _definition_labels(blocks) -> tuple[set[str], set[str]]:
+    """Reference/footnote labels and abbreviation words defined by blocks."""
+    labels: set[str] = set()
+    abbreviations: set[str] = set()
+    for block in blocks:
+        if block.type != "paragraph":
+            continue
+        raw = block.raw.strip()
+        ref = re.match(r"^\[([^\]\n]+)\]:", raw)
+        if ref:
+            labels.add(ref.group(1))
+            continue
+        abbr = re.match(r"^\*\[([^\]\n]+)\]\s*:", raw)
+        if abbr:
+            abbreviations.add(abbr.group(1))
+    return labels, abbreviations
+
+
+def _uses_definition(raw: str, labels: set[str], abbreviations: set[str]) -> bool:
+    """Whether a paragraph needs shared parser context to resolve definitions.
+
+    Only paragraphs that actually reference a defined link/footnote label (or
+    contain a defined abbreviation word) are atomized; ordinary inline links
+    like ``[text](url)`` must stay editable even when the document defines
+    references elsewhere.
+    """
+    for label in labels:
+        token = re.escape(label)
+        # Shortcut [label], full [text][label] and footnote [^label].
+        if re.search(r"\[[^\]\n]*\]\[" + token + r"\]", raw) or \
+                re.search(r"\[" + token + r"\]", raw):
+            return True
+    for word in abbreviations:
+        if re.search(r"(?<!\w)" + re.escape(word) + r"(?!\w)", raw):
+            return True
+    return False
+
+
 def surface_html(text: str, doc_base: str | None = None) -> str:
     """Render the whole document as flat HTML for the continuous surface.
 
@@ -301,6 +360,7 @@ def surface_html(text: str, doc_base: str | None = None) -> str:
     blocks = model.blocks
     definitions = "\n\n".join(block.raw for block in blocks
                                   if _definition_block(block) is not None)
+    ref_labels, abbreviations = _definition_labels(blocks)
     rendered_special = {}
     toc = None
     heading_ids = []
@@ -326,7 +386,12 @@ def surface_html(text: str, doc_base: str | None = None) -> str:
         elif block.type == "html" or re.search(r"^\s*:\s+", block.raw, re.M):
             # These HTML structures have no complete reverse serializer yet.
             rendered_special[i] = _atom("atom-structure", block.raw, _render_editable(block.raw))
-        elif definitions and re.search(r"\[[^\]\n]+\]", block.raw):
+        elif block.type in ("blockquote", "list") and _contains_nested_fence(block.raw, block.type):
+            # Fences the engine cannot render inside quotes/lists would be
+            # corrupted on save; keep them verbatim as source-edit atoms.
+            rendered_special[i] = _atom("atom-structure atom-code-structure",
+                                        block.raw, _render_editable(block.raw))
+        elif definitions and _uses_definition(block.raw, ref_labels, abbreviations):
             rendered_special[i] = _atom("atom-reference", block.raw,
                                          _render_editable(block.raw + "\n\n" + definitions))
         else:

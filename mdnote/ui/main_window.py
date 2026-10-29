@@ -455,7 +455,7 @@ class MainWindow(QMainWindow):
         m_edit.addAction(action("斜体", lambda: self.current and self.current.format_text("*"), "Ctrl+I"))
         m_edit.addAction(action("删除线", lambda: self.current and self.current.format_text("~~"), "Ctrl+Shift+X"))
         m_edit.addAction(action("行内代码", lambda: self.current and self.current.format_text("`"), "Ctrl+Shift+`"))
-        m_edit.addAction(action("链接", lambda: self.current and self.current.format_text("[", "](https://)"), "Ctrl+K"))
+        m_edit.addAction(action("链接", with_session("insert_link"), "Ctrl+K"))
         m_edit.addAction(action("插入代码块", lambda: self.current and self.current.insert_text("\n\n```\n\n```\n\n"), "Ctrl+Shift+K"))
         m_edit.addAction(action("插入表格", lambda: self.current and self.current.insert_text("\n\n| 列一 | 列二 |\n| --- | --- |\n|  |  |\n\n")))
         m_edit.addAction(action("切换任务完成状态 / 插入任务项", with_session("toggle_task"), "Ctrl+Shift+Enter"))

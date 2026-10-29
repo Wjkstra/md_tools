@@ -101,7 +101,7 @@ const App = {
     });
   },
   updateHeadingHint() {
-    if(this.fenceCompletion && this.selectionElement()?.closest("p")!==this.fenceCompletion.paragraph)
+    if(this.fenceCompletion && this.fenceHost()!==this.fenceCompletion.paragraph)
       this.fenceCompletion.menu.close();
     const el = this.ensureHint();
     const selection = getSelection();
@@ -531,15 +531,15 @@ const App = {
   },
 
   // Wrap the current selection in inline marks; with no selection insert a pair.
-  wrapSelection(before, after) {
+  wrapSelection(before, after, text) {
     const selection=getSelection();
     if(!selection.rangeCount) return;
-    const text=selection.toString();
-    document.execCommand("insertText",false,before+text+after);
+    const selected=text!==undefined?text:selection.toString();
+    document.execCommand("insertText",false,before+selected+after);
     const node=selection.anchorNode, end=selection.anchorOffset-after.length;
     if(node?.nodeType===3) {
       const range=document.createRange();
-      range.setStart(node,Math.max(0,end-text.length));
+      range.setStart(node,Math.max(0,end-selected.length));
       range.setEnd(node,Math.max(0,end));
       selection.removeAllRanges();selection.addRange(range);
     }
@@ -558,7 +558,7 @@ const App = {
 
   insertLink() {
     const text = getSelection().toString() || "链接文字";
-    this.wrapSelection("[", "](https://)");
+    this.wrapSelection("[", "](https://)", text);
   },
 
   // Find the rendered element (and an editable inner node) for a model index.
@@ -779,8 +779,22 @@ const App = {
     return item;
   },
 
+  // Prose host a typed fence (``` / ~~~) lives in. Normally a <p>, but leaving
+  // a list with Enter on an empty item makes Chromium insert a bare top-level
+  // <div>; Enter inside a quote can likewise leave <div>s. Without treating
+  // those as prose, "``` + Enter" silently fails after exiting a list and the
+  // three backticks are saved escaped as literal text.
+  fenceHost() {
+    const el = this.selectionElement();
+    const host = el && el.closest && el.closest("p,div");
+    if (!host || host.id === "doc") return null;
+    // List items keep their own Enter flow; code/table/atoms are not prose.
+    if (host.closest(".md-code,table,.md-atom,li,ul,ol")) return null;
+    return host;
+  },
+
   updateFenceSuggestions() {
-    const paragraph=this.selectionElement()?.closest("p");
+    const paragraph=this.fenceHost();
     const match=paragraph && !paragraph.closest(".md-code,table,.md-atom") &&
       paragraph.textContent.match(/([\s\S]*?)(\x60{3,}|~{3,})([\w+#.-]*)$/);
     if(!match || this.textOffset(paragraph)!==paragraph.textContent.length) {
@@ -815,6 +829,15 @@ const App = {
   },
 
   insertFenceCode(paragraph,match,language) {
+    // Chromium nests block markup inserted at a range inside a <div> host
+    // (while it replaces a selected <p>); a bare div left by exiting a list
+    // would swallow the new code block. Normalize it to a paragraph first.
+    if (paragraph.tagName === "DIV") {
+      const p=document.createElement("p");
+      p.innerHTML=paragraph.innerHTML;
+      paragraph.replaceWith(p);
+      paragraph=p;
+    }
     const range=document.createRange();
     if(match[1]) {
       const start=this.caretRange(paragraph,match[1].length);
@@ -1181,7 +1204,67 @@ const App = {
     if(window.__autoBracket && event.key==="Backspace"&&start===end&&start>0 &&
       CodeEditing.pairs[text[start-1]]===text[start])
       edit={start:start-1,end:start+1,text:"",caret:start-1};
+    // Backspace at the very start of an EMPTY code block removes the whole
+    // block and returns the caret to neighbouring prose (Typora behaviour);
+    // otherwise the nested editor traps the caret with no keyboard way out.
+    if(event.key==="Backspace"&&!ctrl&&!event.altKey&&start===end&&start===0&&text==="") {
+      event.preventDefault();this.removeCodeBlock(area.closest(".md-code"));return;
+    }
     if(edit){event.preventDefault();this.applyCodeEdit(area,edit);}
+  },
+
+  // A block that can receive the caret after a code block is removed.
+  _proseSibling(el) {
+    if (!el) return null;
+    if (el.classList && el.classList.contains("md-code"))
+      return { el: el.querySelector(".md-code-area"), code: true };
+    if (el.matches && el.matches("h1,h2,h3,h4,h5,h6,p,blockquote"))
+      return { el, code: false };
+    // Lists/tables: land in the last inner editable (end-of-block semantics).
+    const matches = el.querySelectorAll && el.querySelectorAll("li,th,td,h1,h2,h3,h4,h5,h6,p,blockquote");
+    const inside = matches && matches[matches.length - 1];
+    return inside ? { el: inside, code: false } : null;
+  },
+
+  // Remove a code block. With a prose block before it, this is one native
+  // undo transaction; at the start of the document Chromium refuses native
+  // edits around a leading non-editable atom, so fall back to a structural
+  // removal with a fresh paragraph holding the caret.
+  removeCodeBlock(block) {
+    if (!block) return;
+    const doc=document.getElementById("doc");
+    block._codeObserver?.disconnect();
+    let prevEl=block.previousElementSibling, nextEl=block.nextElementSibling;
+    while (prevEl && !this._proseSibling(prevEl)) prevEl=prevEl.previousElementSibling;
+    while (nextEl && !this._proseSibling(nextEl)) nextEl=nextEl.nextElementSibling;
+    const prevTarget=prevEl && this._proseSibling(prevEl);
+    const nextTarget=nextEl && this._proseSibling(nextEl);
+    const focusTarget=(target,atEnd)=>{
+      if(!target || !target.el || !target.el.isConnected) return;
+      const offset=atEnd?target.el.textContent.length:0;
+      if(target.code) this.selectOffsets(target.el,offset);
+      else this.restoreCaret(target.el,offset);
+    };
+    doc.focus();
+    if(prevTarget) {
+      // Replace the atom with a blank paragraph (one native, undoable
+      // transaction), then drop the blank so the neighbouring prose blocks
+      // stay separated instead of being merged by the native deletion.
+      const token="code-remove-"+Date.now()+"-"+Math.random().toString(36).slice(2);
+      const range=document.createRange();range.selectNode(block);
+      const sel=getSelection();sel.removeAllRanges();sel.addRange(range);
+      document.execCommand("insertHTML",false,'<p data-remove-marker="'+token+'"><br></p>');
+      doc.querySelector('[data-remove-marker="'+token+'"]')?.remove();
+      focusTarget(prevTarget,true);
+    } else {
+      const placeholder=nextTarget?null:document.createElement("p");
+      if(placeholder){placeholder.innerHTML="<br>";block.before(placeholder);}
+      block.remove();
+      if(placeholder) this.restoreCaret(placeholder,0);
+      else focusTarget(nextTarget,false);
+    }
+    this.postProcess(doc);
+    this.scheduleSync();
   },
 
   focusCell(cell) {
@@ -1350,7 +1433,7 @@ const App = {
       // language (Typora: ``` then Enter inserts a code block). Only the fence is
       // consumed, text before it on the line stays, and a closing run added by
       // auto-pairing is dropped, so no literal fence and no empty block are left.
-      const paragraph=this.selectionElement()?.closest("p");
+      const paragraph=this.fenceHost();
       const text=paragraph?paragraph.textContent:"";
       const match=paragraph&&text.match(/([\s\S]*?)(\x60{3,}|~{3,})([\w+#.-]*)(?:\2)?$/);
       if(match && this.textOffset(paragraph)>=match[1].length){
@@ -1391,6 +1474,28 @@ const App = {
     if (event.key === "Backspace" && !ctrl && !event.altKey) {
       if (this.backspaceStripFormat()) { event.preventDefault(); return; }
     }
+    // A forward Delete at a block end immediately followed by a code block
+    // makes Chromium delete the paragraph's OWN text (it cannot merge prose
+    // into the code block's nested editing host). Keep that boundary fixed.
+    if (event.key === "Delete" && !ctrl && !event.altKey && !event.shiftKey) {
+      if (this.guardDeleteIntoCode()) { event.preventDefault(); return; }
+    }
+  },
+
+  // True when a collapsed caret sits at the end of a rendered block whose
+  // next sibling is a code block.
+  guardDeleteIntoCode() {
+    const sel = getSelection();
+    if (!sel.rangeCount || !sel.isCollapsed) return false;
+    const node = sel.anchorNode;
+    const el = node && (node.nodeType === 1 ? node : node.parentElement);
+    if (!el || !el.closest || el.closest(".md-code,table,.md-atom,li")) return false;
+    let top = el;
+    while (top.parentElement && top.parentElement.id !== "doc") top = top.parentElement;
+    if (top.id === "doc") return false;
+    if (this.caretOffsetIn(top) !== top.textContent.length) return false;
+    const next = top.nextElementSibling;
+    return !!(next && next.classList && next.classList.contains("md-code"));
   },
 
   // Enter in a heading: the part before the caret keeps its heading, the caret
@@ -1592,6 +1697,18 @@ const App = {
     this.scheduleSync();
   },
 
+  // True when the collapsed caret precedes every visible character of a
+  // block (ignoring the block-boundary newlines Range.toString inserts).
+  _atBlockTextStart(host) {
+    const selection = getSelection();
+    if (!selection.rangeCount || !selection.isCollapsed) return false;
+    const probe = document.createRange();
+    probe.selectNodeContents(host);
+    try { probe.setEnd(selection.anchorNode, selection.anchorOffset); }
+    catch (error) { return false; }
+    return probe.toString().split("\n").join("").split("\r").join("") === "";
+  },
+
   // Return true (and strip the format) when Backspace is pressed with the caret
   // at the start of a heading/list/quote block.
   backspaceStripFormat() {
@@ -1604,8 +1721,10 @@ const App = {
     }
     const host = target.closest("h1,h2,h3,h4,h5,h6,li,blockquote");
     if (!host || host.closest(".md-code, table, .md-atom")) return false;
-    // Must be at the very start of THIS block's text.
-    if (this.caretOffsetIn(host) !== 0) return false;
+    // Must be at the very start of THIS block's text. Range.toString() adds
+    // a block-boundary "\n" when the host wraps another block element
+    // (blockquote > p, loose list item > p), so compare visible text only.
+    if (!this._atBlockTextStart(host)) return false;
     if (/^H[1-6]$/.test(host.tagName)) {
       document.getElementById("doc").focus();
       this.formatBlockTag(host, "p");
