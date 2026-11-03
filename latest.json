@@ -1,6 +1,6 @@
 {
   "version": "0.3.16",
-  "notes": "修复和改进：\n\n- 组字期间保护编辑节点，避免部分未标记的输入事件和延迟格式化打断输入法。\n- 新建页面使用不透明主题背景，降低首次绘制时出现黑屏的风险。\n\n验证：Python 全量 324 项（323 通过、1 跳过），JavaScript 55 项通过。真实输入法连续组字、用户显卡首帧以及真实安装和升级尚未完成验证。升级前请保存文档并退出 MdNote。",
-  "url": "https://github.com/Wjkstra/md_tools/releases/download/v0.3.16/MdNote-Setup-0.3.16.exe",
-  "sha256": "57167de80d5abe59d5c09a912daa2fc6f778a5223f5aa7eb96d0fb2216dc5658"
+  "notes": "0.3.16 启动修复版\n\n- 修复启动时“DLL load failed while importing QtCore / 找不到指定的程序”的问题：移除打包时误收集的、与 Qt 不兼容的 ICU 库。\n- 覆盖安装会清理旧版安装清单中的冲突文件，并保留不属于程序的用户文件。\n- 保留原 0.3.16 的输入法组字保护与新建页面背景修复。\n\n验证：修复后 Python 326 项（325 通过、1 项因目录符号链接权限跳过），JavaScript 55 项通过；安装包完整性、解包后的程序启动和旧版冲突文件清理已验证。尚未在本机对用户安装进行实际覆盖升级。\n\n已安装原 0.3.16 的用户请下载 MdNote-Setup-0.3.16-fix1.exe 覆盖安装；由于版本号相同，自动更新不会再次提示。安装前请保存文档并退出 MdNote。\n\n修复版源码标签：https://github.com/Wjkstra/md_tools/tree/v0.3.16-fix1",
+  "url": "https://github.com/Wjkstra/md_tools/releases/download/v0.3.16/MdNote-Setup-0.3.16-fix1.exe",
+  "sha256": "a6bd01f5348552bc1bc31867f3dcf9145791e0951abd126920733637f248b7f8"
 }
