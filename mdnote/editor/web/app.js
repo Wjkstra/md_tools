@@ -16,6 +16,7 @@ const App = {
   surfaceReady: false,
   activeAtom: null,    // atom element currently in source-edit mode
   syncTimer: null,
+  composing: false,
 
   // The atom only counts as active while it is still in the live DOM:
   // a surface rebuild (save/reload/mode switch) replaces its element, and a
@@ -36,6 +37,9 @@ const App = {
     document.addEventListener("keyup", () => this.updateHeadingHint());
     document.addEventListener("beforeinput", (e) => this.onBeforeInput(e));
     document.addEventListener("input", (e) => this.onInput(e));
+    document.addEventListener("compositionstart", (e) => {
+      if (document.getElementById("doc").contains(e.target)) this.composing = true;
+    });
     document.addEventListener("compositionend", (e) => this.onCompositionEnd(e));
     document.addEventListener("mousedown", (e) => this.onMouseDown(e), true);
     document.addEventListener("selectionchange", () => this.scheduleHint());
@@ -145,7 +149,7 @@ const App = {
   },
 
   onBeforeInput(event) {
-    if (event.isComposing || !document.getElementById("doc").contains(event.target)) return;
+    if (this.composing || event.isComposing || !document.getElementById("doc").contains(event.target)) return;
     if(event.target.closest?.(".md-code-tools")) return;
     const codeArea=event.target.closest?.(".md-code-area")||this.selectionElement()?.closest(".md-code-area");
     if(codeArea) {
@@ -173,6 +177,7 @@ const App = {
       selection.removeAllRanges(); selection.addRange(range);
       // The pair is now complete: render any inline mark it closed.
       requestAnimationFrame(() => {
+        if (this.composing) return;
         const host = this.selectionElement()?.closest?.("h1,h2,h3,h4,h5,h6,p,blockquote");
         if (host && !host.closest(".md-code,table,.md-atom,li")) this.liveFormat(host);
       });
@@ -365,7 +370,7 @@ const App = {
     // replacing the text node being composed (block conversion, inline
     // reformat) breaks the IME anchor — the first pinyin letters land raw in
     // English and following keystrokes get lost. Defer until compositionend.
-    if (event.isComposing) return;
+    if (this.composing || event.isComposing) return;
     // Convert immediately (synchronous) so markers never linger.
     this.formatCurrentBlock(event.data);
     this.updateFenceSuggestions();
@@ -373,13 +378,18 @@ const App = {
   },
 
   onCompositionEnd(event) {
+    this.composing = false;
     const target = event.target;
     if (!target || !target.closest ||
         !document.getElementById("doc").contains(target)) return;
     if (this.editingAtom() || target.closest(".md-code-area")) return;
-    // Run the conversions skipped during composition against the settled text.
-    this.formatCurrentBlock(event.data);
-    this.scheduleHint();
+    // Let Chromium finish committing the IME transaction before modifying its DOM.
+    // A new composition may already have started by the next frame.
+    requestAnimationFrame(() => {
+      if (this.composing) return;
+      this.formatCurrentBlock(event.data);
+      this.scheduleHint();
+    });
   },
 
   // Characters that can CLOSE an inline mark; only they trigger an inline
@@ -1389,7 +1399,7 @@ const App = {
     });
   },
   onKeyDown(event) {
-    if(event.isComposing || event.keyCode===229) return;
+    if(this.composing || event.isComposing || event.keyCode===229) return;
     // Toolbar inputs/buttons must not inherit a stale selection in code/prose.
     if(event.target.closest?.(".md-code-tools,.md-diagram-preview")) return;
     const completion=this.fenceCompletion;

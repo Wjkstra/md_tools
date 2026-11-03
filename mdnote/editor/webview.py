@@ -154,7 +154,6 @@ class WebPreview(QWebEngineView):
 
     def __init__(self, doc: LiveDocument, get_doc_path=None, parent=None) -> None:
         super().__init__(parent)
-        self.setStyleSheet("QWebEngineView { border: 0; padding: 0; background: transparent; }")
         self._doc = doc
         self._bridge = Bridge(doc, get_doc_path)
         # App commands issued before the first page load are queued.
@@ -163,6 +162,9 @@ class WebPreview(QWebEngineView):
         # Paint the native view background to match the theme BEFORE the first
         # frame; otherwise Chromium shows a black rectangle during startup.
         self.page().setBackgroundColor(QColor(self._theme_background()))
+        self.setStyleSheet(
+            f"QWebEngineView {{ border: 0; padding: 0; background: {self._theme_background()}; }}"
+        )
         channel = QWebChannel(self.page())
         channel.registerObject("bridge", self._bridge)
         self.page().setWebChannel(channel)
@@ -266,6 +268,9 @@ class WebPreview(QWebEngineView):
         s = settings_service().current
         theme_id = self._theme_id(s.theme)
         self.page().setBackgroundColor(QColor(self._theme_background()))
+        self.setStyleSheet(
+            f"QWebEngineView {{ border: 0; padding: 0; background: {self._theme_background()}; }}"
+        )
         self.page().runJavaScript(
             "document.body.classList.toggle('focus-mode', "
             f"{'true' if s.focus_mode else 'false'});"

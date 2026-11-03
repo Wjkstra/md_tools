@@ -182,15 +182,13 @@ class HeadingShortcutTests(live.LiveEditorTests):
  const converted=!!document.querySelector('#doc h1');
  p.dispatchEvent(new CompositionEvent('compositionend',
    {bubbles:true,cancelable:true,data:'# 标题'}));
- return JSON.stringify({during:converted,
-   after:!!document.querySelector('#doc h1'),
-   text:document.querySelector('#doc h1')?.textContent||null});
+ return JSON.stringify({during:converted});
 })()""")
         import json as _json
         data = _json.loads(converted_during)
         self.assertFalse(data["during"])
-        self.assertTrue(data["after"])
-        self.assertEqual(data["text"], "标题")
+        self.wait(lambda: self.js("!!document.querySelector('#doc h1')"))
+        self.assertEqual(self.js("document.querySelector('#doc h1').textContent"), "标题")
 
     def test_repeated_strip_create_and_enter_keeps_everything_working(self):
         self.make_heading(1)
