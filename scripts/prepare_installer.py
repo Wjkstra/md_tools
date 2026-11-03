@@ -131,7 +131,8 @@ def write_install_manifest(dist: Path, files: list[Path]) -> None:
     lines = [f"F{_build_path_text(relative)}" for relative in files]
     lines.extend(f"D{_build_path_text(directory)}"
                  for directory in _ordered_dirs(files))
-    (dist / MANIFEST_NAME).write_text("\r\n".join(lines) + "\r\n", encoding="ascii")
+    # Explicit bytes avoid Windows text-mode translating CRLF into CRCRLF.
+    (dist / MANIFEST_NAME).write_bytes(("\r\n".join(lines) + "\r\n").encode("ascii"))
 
 
 def build_inventory(dist: Path, version: str) -> str:
@@ -142,7 +143,7 @@ def build_inventory(dist: Path, version: str) -> str:
     for item in sorted(dist.rglob("*")):
         if item.is_symlink() or not item.resolve().is_relative_to(dist):
             raise ValueError(f"Linked build entries are not supported: {item}")
-        if item.is_file():
+        if item.is_file() and item.relative_to(dist) != Path(MANIFEST_NAME):
             files.append(item.relative_to(dist))
     if Path("MdNote.exe") not in files:
         raise ValueError("Build directory must contain MdNote.exe")

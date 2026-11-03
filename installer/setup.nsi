@@ -146,9 +146,9 @@ Function un.onInit
 FunctionEnd
 
 ; Remove files owned by the previous release before extracting the new one.
-; Deletion is inventory-scoped (same safety model as uninstall): only paths
-; recorded in the previously installed manifest are touched, so user files are
-; never at risk. Legacy releases (0.3.7 and earlier, no manifest) are left in
+; Deletion is inventory-scoped. Two known incompatible ICU DLLs are moved
+; aside if a previous broken cleanup left them outside the current manifest.
+; Legacy releases (0.3.7 and earlier, no manifest) are otherwise left in
 ; place: SetOutPath/File overwrites existing binaries in place (Windows is
 ; case-insensitive, so the old VCRUNTIME140_1.dll is refreshed even though its
 ; casing differs), and the install directory is dedicated (ValidateInstallDir).
@@ -162,10 +162,18 @@ Function CleanObsoleteFiles
 readLoop:
   FileRead $4 $3
   IfErrors readDone
-  ; Drop the trailing CRLF.
+  ; Accept normal CRLF and the CRCRLF written by older Windows builds.
+trimLine:
   StrLen $2 $3
-  IntOp $2 $2 - 2
-  StrCpy $3 $3 $2
+  IntCmp $2 0 readLoop
+  StrCpy $1 $3 1 -1
+  StrCmp $1 "$\r" trimChar
+  StrCmp $1 "$\n" trimChar
+  Goto lineReady
+trimChar:
+  StrCpy $3 $3 -1
+  Goto trimLine
+lineReady:
   StrCpy $2 $3 1 0
   StrCpy $1 $3 ${NSIS_MAX_STRLEN} 1
   StrCmp $2 "F" 0 dirEntry
@@ -179,6 +187,33 @@ readDone:
   FileClose $4
   Delete "$INSTDIR\install-manifest.txt"
 cleanDone:
+  ; A previous 0.3.16 fix may already have replaced the manifest without
+  ; removing these DLLs. Preserve their bytes while moving them off the DLL
+  ; search path; do not overwrite an existing backup.
+  StrCpy $R0 "icuuc.dll"
+quarantineNext:
+  IfFileExists "$INSTDIR\_internal\$R0" 0 quarantineAdvance
+  StrCpy $R2 0
+quarantineName:
+  StrCpy $R1 "$INSTDIR\_internal\$R0.mdnote-disabled-$R2"
+  IfFileExists "$R1" 0 quarantineMove
+  IntOp $R2 $R2 + 1
+  Goto quarantineName
+quarantineMove:
+  ClearErrors
+  Rename "$INSTDIR\_internal\$R0" "$R1"
+  IfErrors quarantineFailed
+quarantineAdvance:
+  StrCmp $R0 "icuuc.dll" 0 quarantineDone
+  StrCpy $R0 "icudt78.dll"
+  Goto quarantineNext
+quarantineFailed:
+  IfSilent quarantineExit
+  MessageBox MB_OK|MB_ICONSTOP "无法移走冲突的 ICU 文件，请关闭占用文件的程序后重试。"
+quarantineExit:
+  SetErrorLevel 4
+  Quit
+quarantineDone:
 FunctionEnd
 
 Section "MdNote（必需）" SecCore
@@ -222,6 +257,15 @@ Section "Uninstall"
   Delete "$DESKTOP\MdNote.lnk"
   SetOutPath "$TEMP"
   !insertmacro MDNOTE_REMOVE_INSTALLED_FILES
+  ; mdnote-quarantine-cleanup-begin
+  ; Files the upgrade quarantine renamed aside are not in the manifest; remove
+  ; them here so uninstall leaves no DLLs that would block a fresh reinstall
+  ; into the same dedicated directory.
+  Delete "$INSTDIR\_internal\icuuc.dll.mdnote-disabled-*"
+  Delete "$INSTDIR\_internal\icudt78.dll.mdnote-disabled-*"
+  RMDir "$INSTDIR\_internal"
+  RMDir "$INSTDIR"
+  ; mdnote-quarantine-cleanup-end
   Delete "$INSTDIR\Uninstall.exe"
   ; RMDir without /r succeeds only when empty, preserving user documents/assets.
   RMDir "$INSTDIR"

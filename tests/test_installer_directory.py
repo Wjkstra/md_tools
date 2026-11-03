@@ -109,6 +109,26 @@ class InstallerDirectoryIntegrationTests(unittest.TestCase):
 @unittest.skipUnless(os.name == "nt" and COMPILER, "Windows and NSIS required")
 class InstallerCleanupIntegrationTests(unittest.TestCase):
     def test_upgrade_removes_old_icu_and_preserves_unowned_files(self):
+        self.check_upgrade(b"F_internal\\icuuc.dll\r\nF_internal\\icudt78.dll\r\nD_internal\r\n")
+
+    def test_upgrade_cleans_real_legacy_double_carriage_returns(self):
+        self.check_upgrade(b"F_internal\\icuuc.dll\r\r\nF_internal\\icudt78.dll\r\r\nD_internal\r\r\n")
+
+    def test_upgrade_cleans_orphans_after_previous_failed_upgrade(self):
+        self.check_upgrade(b"FMdNote.exe\r\r\n")
+
+    def test_upgrade_with_actual_published_manifests_when_available(self):
+        manifests = [
+            ROOT / ".audit-tool/ime-release/dist/MdNote/install-manifest.txt",
+            ROOT / ".audit-tool/icu-fix/extracted/install-manifest.txt",
+        ]
+        if not all(path.is_file() for path in manifests):
+            self.skipTest("Published build inventories unavailable")
+        for manifest in manifests:
+            with self.subTest(manifest=manifest):
+                self.check_upgrade(manifest.read_bytes())
+
+    def check_upgrade(self, manifest):
         with tempfile.TemporaryDirectory(prefix="mdnote-icu-upgrade-") as folder:
             base = Path(folder)
             install = base / "installed"
@@ -116,10 +136,11 @@ class InstallerCleanupIntegrationTests(unittest.TestCase):
             internal.mkdir(parents=True)
             for name in ("icuuc.dll", "icudt78.dll"):
                 (internal / name).write_bytes(b"old incompatible DLL")
+            previous_backup = internal / "icuuc.dll.mdnote-disabled-0"
+            previous_backup.write_bytes(b"existing backup")
             keep = install / "user-note.md"
             keep.write_text("preserve", encoding="utf-8")
-            (install / "install-manifest.txt").write_bytes(
-                b"F_internal\\icuuc.dll\r\nF_internal\\icudt78.dll\r\nD_internal\r\n")
+            (install / "install-manifest.txt").write_bytes(manifest)
             source = (ROOT / "installer" / "setup.nsi").read_text(encoding="utf-8-sig")
             cleanup = re.search(r"(?ms)^Function CleanObsoleteFiles\s*\n.*?^FunctionEnd", source).group(0)
             executable = base / "cleanup.exe"
@@ -135,4 +156,40 @@ class InstallerCleanupIntegrationTests(unittest.TestCase):
                            creationflags=subprocess.CREATE_NO_WINDOW)
             self.assertFalse((internal / "icuuc.dll").exists())
             self.assertFalse((internal / "icudt78.dll").exists())
+            self.assertEqual(keep.read_text(encoding="utf-8"), "preserve")
+            self.assertEqual(previous_backup.read_bytes(), b"existing backup")
+            if b"F_internal\\icuuc.dll" not in manifest:
+                self.assertEqual((internal / "icuuc.dll.mdnote-disabled-1").read_bytes(),
+                                 b"old incompatible DLL")
+                self.assertEqual((internal / "icudt78.dll.mdnote-disabled-0").read_bytes(),
+                                 b"old incompatible DLL")
+
+    def test_uninstall_removes_quarantined_files_but_keeps_user_files(self):
+        with tempfile.TemporaryDirectory(prefix="mdnote-uninstall-test-") as folder:
+            base = Path(folder)
+            install = base / "installed"
+            internal = install / "_internal"
+            internal.mkdir(parents=True)
+            for name in ("icuuc.dll.mdnote-disabled-0", "icuuc.dll.mdnote-disabled-1",
+                         "icudt78.dll.mdnote-disabled-0"):
+                (internal / name).write_bytes(b"quarantined DLL")
+            keep = install / "user-note.md"
+            keep.write_text("preserve", encoding="utf-8")
+            source = (ROOT / "installer" / "setup.nsi").read_text(encoding="utf-8-sig")
+            block = re.search(
+                r"(?ms)^\s*; mdnote-quarantine-cleanup-begin\s*\n(.*?)"
+                r"^\s*; mdnote-quarantine-cleanup-end",
+                source).group(1)
+            executable = base / "uninstall-tail.exe"
+            script = ('Unicode True\nName "Uninstall tail test"\n'
+                      f'OutFile "{executable}"\nRequestExecutionLevel user\n'
+                      'SilentInstall silent\nSection\n'
+                      f'  StrCpy $INSTDIR "{install}"\n'
+                      + block + 'SectionEnd\n')
+            target = base / "uninstall-tail.nsi"
+            target.write_text(script, encoding="utf-8-sig")
+            subprocess.run([COMPILER, str(target)], check=True, capture_output=True)
+            subprocess.run([str(executable), "/S"], check=True, timeout=10,
+                           creationflags=subprocess.CREATE_NO_WINDOW)
+            self.assertEqual([p.name for p in install.iterdir()], ["user-note.md"])
             self.assertEqual(keep.read_text(encoding="utf-8"), "preserve")

@@ -90,6 +90,7 @@ class InstallManifestTests(unittest.TestCase):
             with (dist / MANIFEST_NAME).open(
                     encoding="ascii", newline="") as handle:
                 text = handle.read()
+            self.assertNotIn("\r\r\n", text)
             self.assertTrue(text.endswith("\r\n"))
             lines = text.splitlines()
             self.assertIn("FMdNote.exe", lines)
@@ -110,6 +111,16 @@ class InstallManifestTests(unittest.TestCase):
             self.assertIn(f'File "{dist / MANIFEST_NAME}"', nsh)
             self.assertIn(
                 f'Delete "$INSTDIR\\{MANIFEST_NAME}"', nsh)
+
+    def test_regeneration_does_not_add_manifest_to_itself(self):
+        import tempfile
+        with tempfile.TemporaryDirectory() as tmp:
+            dist = Path(tmp) / "MdNote"
+            self._make_dist(dist)
+            build_inventory(dist, "1.2.3")
+            first = (dist / MANIFEST_NAME).read_bytes()
+            build_inventory(dist, "1.2.3")
+            self.assertEqual((dist / MANIFEST_NAME).read_bytes(), first)
 
 
 if __name__ == "__main__":
