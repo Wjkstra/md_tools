@@ -104,3 +104,35 @@ class InstallerDirectoryIntegrationTests(unittest.TestCase):
         fallback = self.app_directory("legacy")
         self.registered("machine32", fallback)
         self.assertEqual(self.selected(), str(fallback))
+
+
+@unittest.skipUnless(os.name == "nt" and COMPILER, "Windows and NSIS required")
+class InstallerCleanupIntegrationTests(unittest.TestCase):
+    def test_upgrade_removes_old_icu_and_preserves_unowned_files(self):
+        with tempfile.TemporaryDirectory(prefix="mdnote-icu-upgrade-") as folder:
+            base = Path(folder)
+            install = base / "installed"
+            internal = install / "_internal"
+            internal.mkdir(parents=True)
+            for name in ("icuuc.dll", "icudt78.dll"):
+                (internal / name).write_bytes(b"old incompatible DLL")
+            keep = install / "user-note.md"
+            keep.write_text("preserve", encoding="utf-8")
+            (install / "install-manifest.txt").write_bytes(
+                b"F_internal\\icuuc.dll\r\nF_internal\\icudt78.dll\r\nD_internal\r\n")
+            source = (ROOT / "installer" / "setup.nsi").read_text(encoding="utf-8-sig")
+            cleanup = re.search(r"(?ms)^Function CleanObsoleteFiles\s*\n.*?^FunctionEnd", source).group(0)
+            executable = base / "cleanup.exe"
+            script = ('Unicode True\nName "Cleanup test"\n'
+                      f'OutFile "{executable}"\nRequestExecutionLevel user\nSilentInstall silent\n'
+                      + cleanup + '\nSection\n'
+                      + f'  StrCpy $INSTDIR "{install}"\n'
+                      + '  Call CleanObsoleteFiles\nSectionEnd\n')
+            target = base / "cleanup.nsi"
+            target.write_text(script, encoding="utf-8-sig")
+            subprocess.run([COMPILER, str(target)], check=True, capture_output=True)
+            subprocess.run([str(executable), "/S"], check=True, timeout=10,
+                           creationflags=subprocess.CREATE_NO_WINDOW)
+            self.assertFalse((internal / "icuuc.dll").exists())
+            self.assertFalse((internal / "icudt78.dll").exists())
+            self.assertEqual(keep.read_text(encoding="utf-8"), "preserve")

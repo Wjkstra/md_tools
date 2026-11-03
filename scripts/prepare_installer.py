@@ -33,6 +33,22 @@ VC_RUNTIME_DLLS = (
 )
 
 
+def filter_foreign_icu_binaries(binaries):
+    """Keep Windows' ICU forwarder from being shadowed by unrelated ICU DLLs.
+
+    Qt's Windows build imports the unversioned system icuuc.dll interface.
+    Libraries discovered on PATH (e.g. Poppler) can use the same filename but
+    export only version-suffixed symbols, causing QtCore to fail at startup.
+    """
+    kept = []
+    for entry in binaries:
+        name = Path(entry[0]).name.lower()
+        if name == "icuuc.dll" or re.fullmatch(r"icudt\d+\.dll", name):
+            continue
+        kept.append(entry)
+    return kept
+
+
 def sync_vc_runtime(dist: Path) -> list[str]:
     """Overwrite bundled VC runtimes with the versions shipped by PySide6."""
     try:

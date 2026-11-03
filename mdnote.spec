@@ -1,6 +1,10 @@
 # -*- mode: python ; coding: utf-8 -*-
 # PyInstaller 打包配置。用法：pyinstaller mdnote.spec
 
+import sys
+sys.path.insert(0, SPECPATH)
+from scripts.prepare_installer import filter_foreign_icu_binaries
+
 block_cipher = None
 
 a = Analysis(
@@ -31,6 +35,10 @@ a = Analysis(
     cipher=block_cipher,
     noarchive=False,
 )
+
+# The Windows Qt build imports the system ICU interface. A foreign icuuc.dll
+# found on PATH can have incompatible exports and prevent QtCore from loading.
+a.binaries = filter_foreign_icu_binaries(a.binaries)
 
 pyz = PYZ(a.pure, a.zipped_data, cipher=block_cipher)
 

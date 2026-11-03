@@ -16,7 +16,17 @@ from scripts.prepare_installer import (
     build_inventory,
     sync_vc_runtime,
     VC_RUNTIME_DLLS,
+    filter_foreign_icu_binaries,
 )
+
+
+class IcuPackagingTests(unittest.TestCase):
+    def test_foreign_icu_cannot_shadow_windows_system_library(self):
+        entries = [('icuuc.dll', 'poppler/icuuc.dll', 'BINARY'),
+                   ('ICUDT78.DLL', 'poppler/icudt78.dll', 'BINARY'),
+                   ('PySide6/Qt6Core.dll', 'qt/Qt6Core.dll', 'BINARY'),
+                   ('other.dll', 'elsewhere/other.dll', 'BINARY')]
+        self.assertEqual(filter_foreign_icu_binaries(entries), entries[2:])
 
 
 @unittest.skipUnless(
