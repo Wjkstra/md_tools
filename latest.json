@@ -1,6 +1,6 @@
 {
   "version": "0.3.16",
-  "notes": "0.3.16 启动修复版\n\n- 修复启动时“DLL load failed while importing QtCore / 找不到指定的程序”的问题：移除打包时误收集的、与 Qt 不兼容的 ICU 库。\n- 覆盖安装会清理旧版安装清单中的冲突文件，并保留不属于程序的用户文件。\n- 保留原 0.3.16 的输入法组字保护与新建页面背景修复。\n\n验证：修复后 Python 326 项（325 通过、1 项因目录符号链接权限跳过），JavaScript 55 项通过；安装包完整性、解包后的程序启动和旧版冲突文件清理已验证。尚未在本机对用户安装进行实际覆盖升级。\n\n已安装原 0.3.16 的用户请下载 MdNote-Setup-0.3.16-fix1.exe 覆盖安装；由于版本号相同，自动更新不会再次提示。安装前请保存文档并退出 MdNote。\n\n修复版源码标签：https://github.com/Wjkstra/md_tools/tree/v0.3.16-fix1",
-  "url": "https://github.com/Wjkstra/md_tools/releases/download/v0.3.16/MdNote-Setup-0.3.16-fix1.exe",
-  "sha256": "a6bd01f5348552bc1bc31867f3dcf9145791e0951abd126920733637f248b7f8"
+  "notes": "0.3.16 二次启动修复版（fix2）\n\n- 修复 fix1 覆盖安装后冲突 ICU 文件仍残留、依旧无法启动的问题：旧打包脚本在 Windows 上生成的安装清单为 CRCRLF 行尾，安装程序按 CRLF 截断导致删除路径错误，icuuc.dll / icudt78.dll 未被移走。\n- 若冲突文件已不在清单中（上次升级遗留），安装时会改名为 .mdnote-disabled-N 隔离移走，保留文件内容，无需手工删除。\n- 打包脚本改为写字节，重新生成不再把清单自身计入文件列表。\n- 保留 fix1 的全部修复，以及 0.3.16 的输入法组字保护和新建页面背景修复。\n\n已安装原 0.3.16 或 fix1、启动仍报 QtCore 加载失败的用户，请下载 MdNote-Setup-0.3.16-fix2.exe 覆盖安装；由于版本号相同，自动更新不会再次提示。安装前请保存文档并退出 MdNote。\n\n修复版源码标签：https://github.com/Wjkstra/md_tools/tree/v0.3.16-fix2",
+  "url": "https://github.com/Wjkstra/md_tools/releases/download/v0.3.16/MdNote-Setup-0.3.16-fix2.exe",
+  "sha256": "c2ee405ac05b5dc2bdfd6c6ca3b5611a29642ec0723581b45a890cee4e2fe321"
 }
