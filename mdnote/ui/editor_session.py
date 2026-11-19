@@ -7,6 +7,7 @@
 
 from pathlib import Path
 import json
+import re
 import tempfile
 
 from PySide6.QtCore import QSignalBlocker, QTimer, Qt
@@ -21,9 +22,48 @@ from PySide6.QtWidgets import (
 from ..core.settings import settings_service
 from ..core.file_io import atomic_write_text
 from ..core.word_count import count_stats
-from ..editor.block_model import build_model, extract_headings
+from ..editor.block_model import HEADING_RE, LIST_RE, QUOTE_RE, build_model, extract_headings
 from ..editor.source_editor import SourceEditor
 from ..editor.webview import LiveDocument, WebPreview
+
+
+def _suggest_save_name(text: str) -> str:
+    """Suggest a Windows-safe name from the first H1 or first content line."""
+    first_line = ""
+    title = ""
+    for block in build_model(text).blocks:
+        if block.trailing or block.type == "frontmatter":
+            continue
+        if not first_line:
+            first_line = block.raw.splitlines()[0].strip()
+        if block.type == "heading" and block.level == 1:
+            title = HEADING_RE.match(block.raw).group(2) or ""
+            title = re.sub(r"(?:^|\s)#+\s*$", "", title)
+        elif block.type == "paragraph":
+            setext = re.search(r"(?m)^([^\r\n]+)\r?\n {0,3}=+[ \t]*\r?$", block.raw)
+            if setext:
+                title = setext.group(1)
+        if title.strip():
+            break
+
+    if not title.strip():
+        heading = HEADING_RE.fullmatch(first_line)
+        title = (heading.group(2) or "") if heading else first_line
+        title = QUOTE_RE.sub("", title).lstrip()
+        title = LIST_RE.sub("", title)
+        title = re.sub(r"^\[[ xX]\]\s+", "", title)
+
+    title = re.sub(r"!?\[([^\]]+)\]\([^)]*\)", r"\1", title)
+    title = re.sub(r"[*`~]", "", title)
+    title = " ".join(title.split())
+    stem = re.sub(r'[<>:"/\\|?*\x00-\x1f]', "-", title).strip(" .-")
+    if stem.lower().endswith(".md"):
+        stem = stem[:-3]
+    stem = stem[:60].rstrip(" .")
+    if re.fullmatch(r"(?i)CON|PRN|AUX|NUL|CONIN\$|CONOUT\$|(?:COM|LPT)[1-9¹²³]",
+                    stem.split(".", 1)[0].rstrip()):
+        stem = "_" + stem
+    return f"{stem or '无标题'}.md"
 
 
 class EditorSession(QWidget):
@@ -254,7 +294,8 @@ class EditorSession(QWidget):
         target = self.file_path
         if not target or save_as:
             path, _ = QFileDialog.getSaveFileName(
-                self.host, "保存", target or "无标题.md", "Markdown (*.md)"
+                self.host, "保存", target or _suggest_save_name(self.current_text()),
+                "Markdown (*.md)"
             )
             if not path:
                 return False

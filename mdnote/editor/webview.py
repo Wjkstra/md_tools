@@ -207,7 +207,7 @@ class WebPreview(QWebEngineView):
                 return
             self.page().runJavaScript(
                 "(() => { try {"
-                "if (typeof App === 'undefined' || !App.surfaceReady)"
+                "if (typeof App === 'undefined' || !App.surfaceReady || App.composing)"
                 "return JSON.stringify({ready:false});"
                 "return JSON.stringify({ready:true,text:App.captureMarkdown()});"
                 "} catch (_) { return JSON.stringify({ready:false}); } })()", received)

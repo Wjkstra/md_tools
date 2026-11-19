@@ -1,6 +1,6 @@
 {
-  "version": "0.3.16",
-  "notes": "0.3.16 二次启动修复版（fix2）\n\n- 修复 fix1 覆盖安装后冲突 ICU 文件仍残留、依旧无法启动的问题：旧打包脚本在 Windows 上生成的安装清单为 CRCRLF 行尾，安装程序按 CRLF 截断导致删除路径错误，icuuc.dll / icudt78.dll 未被移走。\n- 若冲突文件已不在清单中（上次升级遗留），安装时会改名为 .mdnote-disabled-N 隔离移走，保留文件内容，无需手工删除。\n- 打包脚本改为写字节，重新生成不再把清单自身计入文件列表。\n- 保留 fix1 的全部修复，以及 0.3.16 的输入法组字保护和新建页面背景修复。\n\n已安装原 0.3.16 或 fix1、启动仍报 QtCore 加载失败的用户，请下载 MdNote-Setup-0.3.16-fix2.exe 覆盖安装；由于版本号相同，自动更新不会再次提示。安装前请保存文档并退出 MdNote。\n\n修复版源码标签：https://github.com/Wjkstra/md_tools/tree/v0.3.16-fix2",
-  "url": "https://github.com/Wjkstra/md_tools/releases/download/v0.3.16/MdNote-Setup-0.3.16-fix2.exe",
-  "sha256": "c2ee405ac05b5dc2bdfd6c6ca3b5611a29642ec0723581b45a890cee4e2fe321"
+  "version": "0.3.17",
+  "notes": "- 修复实时编辑中创建标题、列表或引用后，中文输入法可能提前写入第一个拼音字母的问题。保存仅使用已确认的文字。\n- 新文档首次保存时，自动用第一个一级标题建议文件名。没有一级标题时，取首个非空内容行。保存对话框中的建议名称可直接修改。\n- 覆盖升级会保留含有用户文件的目录，并继续清理其余旧版文件。",
+  "url": "https://github.com/Wjkstra/md_tools/releases/download/v0.3.17/MdNote-Setup-0.3.17.exe",
+  "sha256": "5a9a660a478b72d8958f245eea7b0a58742117e78707666e72e2a6a3d3b24308"
 }

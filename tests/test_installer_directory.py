@@ -128,6 +128,22 @@ class InstallerCleanupIntegrationTests(unittest.TestCase):
             with self.subTest(manifest=manifest):
                 self.check_upgrade(manifest.read_bytes())
 
+    def test_upgrade_continues_after_preserving_a_nonempty_directory(self):
+        with tempfile.TemporaryDirectory(prefix="mdnote-upgrade-dirs-") as folder:
+            install = Path(folder) / "installed"
+            shared = install / "shared"
+            obsolete = install / "obsolete"
+            shared.mkdir(parents=True)
+            obsolete.mkdir()
+            note = shared / "user-note.md"
+            note.write_text("preserve", encoding="utf-8")
+            (install / "install-manifest.txt").write_bytes(b"Dshared\r\nDobsolete\r\n")
+
+            self.run_cleanup(install)
+
+            self.assertEqual(note.read_text(encoding="utf-8"), "preserve")
+            self.assertFalse(obsolete.exists())
+
     def check_upgrade(self, manifest):
         with tempfile.TemporaryDirectory(prefix="mdnote-icu-upgrade-") as folder:
             base = Path(folder)
@@ -141,19 +157,7 @@ class InstallerCleanupIntegrationTests(unittest.TestCase):
             keep = install / "user-note.md"
             keep.write_text("preserve", encoding="utf-8")
             (install / "install-manifest.txt").write_bytes(manifest)
-            source = (ROOT / "installer" / "setup.nsi").read_text(encoding="utf-8-sig")
-            cleanup = re.search(r"(?ms)^Function CleanObsoleteFiles\s*\n.*?^FunctionEnd", source).group(0)
-            executable = base / "cleanup.exe"
-            script = ('Unicode True\nName "Cleanup test"\n'
-                      f'OutFile "{executable}"\nRequestExecutionLevel user\nSilentInstall silent\n'
-                      + cleanup + '\nSection\n'
-                      + f'  StrCpy $INSTDIR "{install}"\n'
-                      + '  Call CleanObsoleteFiles\nSectionEnd\n')
-            target = base / "cleanup.nsi"
-            target.write_text(script, encoding="utf-8-sig")
-            subprocess.run([COMPILER, str(target)], check=True, capture_output=True)
-            subprocess.run([str(executable), "/S"], check=True, timeout=10,
-                           creationflags=subprocess.CREATE_NO_WINDOW)
+            self.run_cleanup(install)
             self.assertFalse((internal / "icuuc.dll").exists())
             self.assertFalse((internal / "icudt78.dll").exists())
             self.assertEqual(keep.read_text(encoding="utf-8"), "preserve")
@@ -163,6 +167,21 @@ class InstallerCleanupIntegrationTests(unittest.TestCase):
                                  b"old incompatible DLL")
                 self.assertEqual((internal / "icudt78.dll.mdnote-disabled-0").read_bytes(),
                                  b"old incompatible DLL")
+
+    def run_cleanup(self, install):
+        source = (ROOT / "installer" / "setup.nsi").read_text(encoding="utf-8-sig")
+        cleanup = re.search(r"(?ms)^Function CleanObsoleteFiles\s*\n.*?^FunctionEnd", source).group(0)
+        executable = install.parent / "cleanup.exe"
+        script = ('Unicode True\nName "Cleanup test"\n'
+                  f'OutFile "{executable}"\nRequestExecutionLevel user\nSilentInstall silent\n'
+                  + cleanup + '\nSection\n'
+                  + f'  StrCpy $INSTDIR "{install}"\n'
+                  + '  Call CleanObsoleteFiles\nSectionEnd\n')
+        target = install.parent / "cleanup.nsi"
+        target.write_text(script, encoding="utf-8-sig")
+        subprocess.run([COMPILER, str(target)], check=True, capture_output=True)
+        subprocess.run([str(executable), "/S"], check=True, timeout=10,
+                       creationflags=subprocess.CREATE_NO_WINDOW)
 
     def test_uninstall_removes_quarantined_files_but_keeps_user_files(self):
         with tempfile.TemporaryDirectory(prefix="mdnote-uninstall-test-") as folder:

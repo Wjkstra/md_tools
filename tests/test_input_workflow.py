@@ -145,6 +145,46 @@ class InputWorkflowTests(unittest.TestCase):
             self.assertEqual(window.tabs.count(), count)
             self.assertIs(window.current, session)
 
+    def test_first_save_suggests_a_safe_editable_document_name(self):
+        cases = (
+            ("开头\n\n# **项目**：[周报](https://example.org) ##\n\n# 后续标题", "项目：周报.md"),
+            ("~~~md\n# 代码中的标题\n~~~\n\n正文标题\n===\n\n# 后续标题", "正文标题.md"),
+            ("\n\n- [ ] 计划/事项?\n下一行", "计划-事项.md"),
+            ("# COM1.md", "_COM1.md"),
+            ("首" * 100, "首" * 60 + ".md"),
+            ("\n\n", "无标题.md"),
+        )
+        with self.window() as (window, svc, folder):
+            window.toggle_mode()
+            session = window.current
+            for source, expected in cases:
+                with self.subTest(source=source):
+                    session.source.set_text(source)
+                    with patch.object(QFileDialog, "getSaveFileName", return_value=("", "")) as dialog:
+                        self.assertFalse(session.do_save(False))
+                    self.assertEqual(dialog.call_args.args[2], expected)
+                    self.assertIsNone(session.file_path)
+
+            custom = folder / "自定义.md"
+            session.source.set_text("# 建议名称")
+            with patch.object(QFileDialog, "getSaveFileName", return_value=(str(custom), "")):
+                self.assertTrue(session.do_save(False))
+            self.assertEqual(custom.read_text(encoding="utf-8"), "# 建议名称")
+            with patch.object(QFileDialog, "getSaveFileName", return_value=("", "")) as dialog:
+                self.assertFalse(session.do_save(True))
+            self.assertEqual(dialog.call_args.args[2], str(custom))
+
+    def test_first_live_save_uses_the_latest_heading(self):
+        with self.window() as (window, svc, folder):
+            self.wait(lambda: self.js(window, "typeof App !== 'undefined' && App.surfaceReady"))
+            self.js(window, """(() => {
+              App.focusEditor();
+              document.execCommand('insertText', false, '# 最新标题');
+            })()""")
+            with patch.object(QFileDialog, "getSaveFileName", return_value=("", "")) as dialog:
+                self.assertFalse(window.current.do_save(False))
+            self.assertEqual(dialog.call_args.args[2], "最新标题.md")
+
     def test_save_as_updates_watch_and_recent_and_blocks_open_tab_collision(self):
         with self.window() as (window, svc, folder):
             window.toggle_mode()

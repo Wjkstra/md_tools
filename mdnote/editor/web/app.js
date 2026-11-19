@@ -334,10 +334,14 @@ const App = {
 
   scheduleSync() {
     if (this.syncTimer) clearTimeout(this.syncTimer);
-    this.syncTimer = setTimeout(() => this.pushSurface(), 120);
+    this.syncTimer = setTimeout(() => {
+      this.syncTimer = null;
+      this.pushSurface();
+    }, 120);
   },
 
   pushSurface() {
+    if (this.composing) return;
     const md = this.captureMarkdown();
     this.bridge.updateSurfaceText(md);
   },
@@ -357,6 +361,9 @@ const App = {
       // Observable marker for tests: a real input event reached the page.
       window.__mdLastInput = performance.now();
     }
+    // Composing text is provisional. Rewriting its DOM loses the IME range,
+    // and syncing it would expose unfinished pinyin to autosave.
+    if (this.composing || event.isComposing) return;
     const atom=this.editingAtom();
     if(atom){
       // Atom input is real pending input: keep its source in sync (debounced
@@ -366,11 +373,6 @@ const App = {
       return; // atom edits never trigger prose block conversion
     }
     this.scheduleSync();
-    // While an IME composition is active the DOM must not be rebuilt:
-    // replacing the text node being composed (block conversion, inline
-    // reformat) breaks the IME anchor — the first pinyin letters land raw in
-    // English and following keystrokes get lost. Defer until compositionend.
-    if (this.composing || event.isComposing) return;
     // Convert immediately (synchronous) so markers never linger.
     this.formatCurrentBlock(event.data);
     this.updateFenceSuggestions();
@@ -382,6 +384,7 @@ const App = {
     const target = event.target;
     if (!target || !target.closest ||
         !document.getElementById("doc").contains(target)) return;
+    this.scheduleSync();
     if (this.editingAtom() || target.closest(".md-code-area")) return;
     // Let Chromium finish committing the IME transaction before modifying its DOM.
     // A new composition may already have started by the next frame.
@@ -533,9 +536,11 @@ const App = {
       remaining -= node.length;
       node = walker.nextNode();
     }
-    // Offset past the end: collapse to end.
+    // Put the caret before a lone placeholder BR in an empty block. A caret
+    // after it can make Chromium drop the first active IME composition range.
     const range = document.createRange();
-    range.selectNodeContents(root); range.collapse(false);
+    range.selectNodeContents(root);
+    range.collapse(root.childNodes.length === 1 && root.firstChild.nodeName === "BR");
     const selection = getSelection();
     selection.removeAllRanges(); selection.addRange(range);
   },
@@ -1568,7 +1573,10 @@ const App = {
     document.execCommand("formatBlock", false, tagName);
     const converted = this.selectionElement()?.closest?.(tagName.toLowerCase());
     const result = converted && converted.closest("#doc") ? converted : host;
-    if (!result.textContent.trim()) result.innerHTML = "<br>";
+    if (!result.textContent.trim()) {
+      result.innerHTML = "<br>";
+      this.restoreCaret(result, 0);
+    }
     return result;
   },
 

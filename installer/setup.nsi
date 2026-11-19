@@ -160,6 +160,8 @@ Function CleanObsoleteFiles
   IfFileExists "$INSTDIR\install-manifest.txt" 0 cleanDone
   FileOpen $4 "$INSTDIR\install-manifest.txt" r
 readLoop:
+  ; A failed Delete/RMDir must not be mistaken for the end of the manifest.
+  ClearErrors
   FileRead $4 $3
   IfErrors readDone
   ; Accept normal CRLF and the CRCRLF written by older Windows builds.
